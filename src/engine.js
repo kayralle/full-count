@@ -1572,15 +1572,16 @@ function bringIn(g, side, id, opts) {
   const midPA = g.pa && g.pa.pid === (old && old.id) && (g.pa.n > 0 || g.balls || g.strikes);
   if (opts.user) say(g, `Go, ${N.last}!`, 'good', 'change', { side });
   else say(g, `Now pitching for ${t.short}: ${N.name}.`, 'sys', 'change', { side });
-  if (midPA) {
-    g.pa.depart = { pid: old.id, b: g.balls, s: g.strikes };
+  // A PA already under way switches to the new pitcher. Before the first pitch it's simply his batter;
+  // after it he inherits the count (and 9.16(h) decides who gets a walk).
+  if (g.pa && old && g.pa.pid === old.id) {
+    if (midPA) g.pa.depart = { pid: old.id, b: g.balls, s: g.strikes };
     g.pa.pid = id;
     const B = g.P[g.pa.bid];
     const def = M.DEF_K * (teamDefense(g, side) - 50) / 10;
     const T = matchupTargets(B, N, def), kn = solveKnobs(B, N, T);
     g.pa.T = T; g.pa.kn = { W: kn.W, A: kn.A, q: kn.q, pBIP: kn.pBIP }; g.pa.bc = bipCalib(B, N, T, kn); g.pa.eS = TYPES.swingEdge(B, N);
-    say(g, `${N.last} inherits a ${countStr(g)} count.`, 'sys', null);
-    if (g.tally && !opts.user) g.tally.midAB++;
+    if (midPA) { say(g, `${N.last} inherits a ${countStr(g)} count.`, 'sys', null); if (g.tally && !opts.user) g.tally.midAB++; }
   }
   if (onBase) say(g, `He inherits ${onBase} runner${onBase > 1 ? 's' : ''}.`, 'sys', null);
   pbp(g, `${halfTag(g)}: ${N.last} replaces ${old ? old.last : 'the pitcher'}${onBase ? `, inherits ${onBase} runner${onBase > 1 ? 's' : ''}` : ''}.`);

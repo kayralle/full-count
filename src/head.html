@@ -320,6 +320,9 @@ h1,h2,h3,p{margin:0}
 .tagc.fnt{background:var(--ink-hot)}
 .tagc.coach{background:var(--flag);color:var(--ink)}
 .reason{font:600 13px/1.35 var(--f-body);color:var(--ink-hot)}
+.reason.flash{animation:reasonflash .6s ease-out 1}
+@keyframes reasonflash{0%,40%{transform:translateX(-3px)}20%,60%{transform:translateX(3px)}100%{transform:none}}
+.cmd[aria-disabled=true],.lu-row[aria-disabled=true]{opacity:.45}
 
 /* ---------- Sheets ---------- */
 .sheet-wrap{position:fixed;inset:0;z-index:20;background:var(--scrim-bg);display:flex;align-items:flex-end;justify-content:center}
@@ -395,6 +398,7 @@ textarea.field-in{min-height:140px;font:500 12px/1.4 ui-monospace,monospace}
 .ivgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
 .ivgrid label{display:grid;gap:3px;font:600 11px/1 var(--f-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--mist)}
 .ivgrid input{background:var(--night);border:1px solid var(--line);border-radius:6px;padding:7px 6px;width:100%}
+.card>.row>select[data-ed]{background:var(--night);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:500 15px var(--f-body);min-width:0;flex:1}
 .custom-tag{font:800 10px/1 var(--f-ui);letter-spacing:.1em;text-transform:uppercase;background:var(--flag);color:var(--flag-ink);padding:3px 6px;border-radius:4px}
 .dock{position:sticky;bottom:env(safe-area-inset-bottom,0px);z-index:4;display:flex;gap:8px;padding:10px;background:var(--deck);border:1px solid var(--line);border-radius:12px;box-shadow:0 -8px 22px rgba(0,0,0,.35)}
 .dock .btn{flex:1 1 auto}

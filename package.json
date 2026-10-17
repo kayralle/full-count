@@ -1,0 +1,15 @@
+{
+  "name": "full-count",
+  "private": true,
+  "description": "A Pokémon-style baseball game built from real 2026 MLB stats. Ships as one offline HTML file.",
+  "scripts": {
+    "data": "python3 data/build_data.py",
+    "build": "node build.js",
+    "test": "node --test tests/engine.test.js",
+    "test:ui": "node build.js && node --test tests/ui.test.js",
+    "sim": "node tools/sim.js --games 3000"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

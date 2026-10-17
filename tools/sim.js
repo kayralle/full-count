@@ -60,7 +60,8 @@ function report(T) {
     ['Relievers KO (≤3% of apps)', T.faintRP.KO / Math.max(1, T.reliefApps), v => v <= 0.03],
     ['Out of gas (≤1% of apps)', T.faints.GAS / Math.max(1, T.startsN + T.reliefApps), v => v <= 0.01],
     ['Games with a faint (12–25%)', T.gamesWithFaint / T.games, v => v >= 0.12 && v <= 0.25],
-    ['Injury faints per game (1/250–1/500)', T.faints.INJ / T.games, v => v >= 0.002 && v <= 0.004 || T.games < 2000],
+    // rare enough (about 1 in 400 games) that it's only judged on 10,000+ games
+    ['Injury faints per game (1/250–1/500, 10k+ games)', T.faints.INJ / T.games, v => v >= 0.002 && v <= 0.004 || T.games < 10000],
     ['AI changes mid at-bat (0)', T.midAB, v => v === 0],
     ['Pitches past budget (1–6%)', T.pastBudget / T.pitches, v => v >= 0.01 && v <= 0.06],
     ['Pitches with a Health penalty (3–10%)', T.hpPen / T.pitches, v => v >= 0.03 && v <= 0.10],

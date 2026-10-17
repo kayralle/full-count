@@ -333,7 +333,7 @@ function vSetup() {
   ${card('Your team', 'suTeam', su.team, null)}
   ${ex ? card('Opponent', 'suOpp', su.opp, su.team) + `<div class="card"><span class="eyebrow">You are</span><div class="seg"><input type="radio" name="suHome" id="h_home" value="1" ${su.home ? 'checked' : ''}><label for="h_home">Home</label><input type="radio" name="suHome" id="h_away" value="0" ${!su.home ? 'checked' : ''}><label for="h_away">Away</label></div><p class="muted">The home team bats in the bottom of each inning.</p></div>` : ''}
   ${su.mode === 'pennant' ? '<p class="hint">Your whole roster starts at level 5 with 0 EVs. Opponents get tougher as you go.</p>' : ''}
-  <button class="btn primary" data-a="startMode">${ex ? 'Lineup card' : 'Start'}</button>`;
+  <div class="row"><button class="btn ghost" data-a="editor">Editor</button><button class="btn primary grow" data-a="startMode">${ex ? 'Lineup card' : 'Start'}</button></div>`;
 }
 
 /* ---------- Lineup card ---------- */
@@ -702,10 +702,10 @@ function defCmdHTML(g) {
   return `<div class="frame"><div class="prompt"><p class="pr-big">${esc(P.last)} vs ${esc(B.last)}. What's the call?</p><p class="pr-sub">${esc(sitStr(g))}</p></div>
     <div class="cmds">
       <button class="cmd cur" data-a="menu" data-v="pitch">Pitch</button>
-      <button class="cmd" data-a="menu" data-v="pen">Bullpen</button>
+      <button class="cmd" data-a="menu" data-v="pen" ${bp.reason ? 'aria-disabled="true"' : ''} title="${esc(bp.reason || 'Change pitchers')}">Bullpen</button>
       <button class="cmd" data-a="visit" ${vs.ok ? '' : 'aria-disabled="true"'} title="${esc(vs.ok ? `${vs.left} left` : vs.why)}">Visit${vs.ok ? ` <small>×${vs.left}</small>` : ''}</button>
       <button class="cmd" data-a="auto">Auto</button>
-    </div>${bp.reason ? `<p class="pr-sub">${esc(bp.reason)}</p>` : ''}${UI.msg ? `<p class="reason">${esc(UI.msg)}</p>` : ''}</div>`;
+    </div>${bp.reason ? `<p class="reason" id="penWhy">${esc(bp.reason)}</p>` : ''}${UI.msg && UI.msg !== bp.reason ? `<p class="reason">${esc(UI.msg)}</p>` : ''}</div>`;
 }
 function offCmdHTML(g) {
   const P = g.P[FC.curPitcherId(g)], B = g.P[g.pa.bid];
@@ -877,7 +877,7 @@ function vEditor() {
   if (e.panel === 'share') return vShare();
   const list = edList(), shown = list.slice(0, 150);
   const key = e.sort === 'name' ? null : e.sort;
-  const row = v => `<button class="pr" data-a="edOpen" data-id="${v.id}"><div><div class="nm">${esc(v.name)} ${v.custom ? '<span class="custom-tag">Custom</span>' : ''}${edited(v.id) ? ' <span class="pc-flag">Edited</span>' : ''}</div><div class="sub">${tmChip(v.team)}<span class="pos-chip">${esc(v.kind === 'P' ? (v.role || 'P') : v.pos.join('/'))}</span>${typeChips(v.types, true)}</div><div class="pc-stat">${esc(statLine(v))}</div></div><span class="rt">${key ? Math.round(v.ratings[key] || 0) : ''}</span></button>`;
+  const row = v => `<button class="pr" data-a="edOpen" data-id="${v.id}"><div><div class="nm">${esc(v.name)} ${v.custom ? '<span class="custom-tag">Custom</span>' : ''}${edited(v.id) && !v.custom ? ' <span class="pc-flag">Edited</span>' : ''}</div><div class="sub">${tmChip(v.team)}<span class="pos-chip">${esc(v.kind === 'P' ? (v.role || 'P') : v.pos.join('/'))}</span>${typeChips(v.types, true)}</div><div class="pc-stat">${esc(statLine(v))}</div></div><span class="rt">${key ? Math.round(v.ratings[key] || 0) : ''}</span></button>`;
   return `<header class="head"><div><p class="eyebrow">${FC.PLAYERS.length} players</p><h2 class="h2">Player editor</h2></div><button class="btn ghost sm" data-a="edBack">Done</button></header>
   <div class="filters">
     <input id="edq" type="search" placeholder="Search players, teams or types" value="${esc(e.q)}" aria-label="Search players">
@@ -894,7 +894,7 @@ function ovOf(id) { FC.OV.players[id] = FC.OV.players[id] || {}; return FC.OV.pl
 function applyOV() { FC.setOverrides(FC.OV); }
 function slider(id, stat, v) {
   const val = Math.round(v.ratings[stat]), real = v.real[stat] != null ? Math.round(v.real[stat]) : null;
-  return `<div class="sl ${real != null && val !== real ? 'mod' : ''}"><label for="r_${stat}">${FC.STAT_LABEL[stat]}</label><input type="range" min="1" max="99" step="1" id="r_${stat}" data-ed="rating" data-stat="${stat}" value="${val}"><output id="o_${stat}">${val}</output><span class="real">Real: ${real != null ? real + ' · ' : ''}${esc(realLabel(FC.base(id), stat) || '')}</span></div>`;
+  return `<div class="sl ${real != null && val !== real ? 'mod' : ''}"><label for="r_${stat}">${FC.STAT_LABEL[stat]}</label><input type="range" min="1" max="99" step="1" id="r_${stat}" data-ed="rating" data-stat="${stat}" value="${val}"><output id="o_${stat}">${val}</output><span class="real">${v.custom ? 'Base' : 'Real'}: ${real != null ? real + ' · ' : ''}${esc(realLabel(FC.base(id), stat) || '')}</span></div>`;
 }
 function projText(id) {
   const pr = FC.projectLine(id);
@@ -1040,8 +1040,8 @@ function resumeGame() { S.phase = 'game'; resetGameUI(); UI.V = FC.snap(S.game);
 const A = {
   continue() { S = loadSaved(); UI.screen = null; resetGameUI(); UI.luDraft = null; render(); window.scrollTo(0, 0); },
   toTitle() { UI.screen = 'title'; render(); },
-  editor() { UI.edReturn = UI.screen === 'title' || !S ? 'title' : null; UI.screen = 'editor'; UI.ed.id = null; UI.ed.panel = ''; UI.ed.msg = ''; render(); window.scrollTo(0, 0); },
-  edBack() { UI.screen = UI.edReturn === 'title' ? 'title' : null; UI.luDraft = null; render(); window.scrollTo(0, 0); },
+  editor() { UI.edReturn = UI.screen === 'setup' ? 'setup' : UI.screen === 'title' || !S ? 'title' : null; UI.screen = 'editor'; UI.ed.id = null; UI.ed.panel = ''; UI.ed.msg = ''; render(); window.scrollTo(0, 0); },
+  edBack() { UI.screen = UI.edReturn === 'title' || UI.edReturn === 'setup' ? UI.edReturn : null; UI.luDraft = null; render(); window.scrollTo(0, 0); },
   sound() { PREFS.sound = !PREFS.sound; savePrefs(); const b = document.getElementById('sndBtn'); if (b) { b.setAttribute('aria-pressed', String(PREFS.sound)); b.textContent = b.textContent.includes('Sound') ? (PREFS.sound ? '♪ Sound on' : '♪ Sound off') : (PREFS.sound ? '♪ On' : '♪ Off'); } if (PREFS.sound) sfx('select'); },
   startMode() {
     const su = UI.setup;
@@ -1080,7 +1080,9 @@ const A = {
   extraRoute() { S.pr.extra = true; S.phase = 'lineup'; UI.luDraft = null; save(); render(); window.scrollTo(0, 0); },
   resetSave() { if (!UI.confirmReset) { UI.confirmReset = true; render(); return; } UI.confirmReset = false; clearSaved(); S = null; UI.screen = 'title'; render(); window.scrollTo(0, 0); },
   menu(d) {
-    if (PB.active) return; UI.menu = d.v; UI.msg = ''; UI.confirmSim = false;
+    if (PB.active) return;
+    if (d.v === 'pen') { const why = FC.bullpenState(S.game, S.game.user).reason; if (why) { UI.msg = why; sfx('back'); renderPanel(); anim(document.getElementById('penWhy'), 'flash', 600); return; } }
+    UI.menu = d.v; UI.msg = ''; UI.confirmSim = false;
     if (d.v === 'pitch' || d.v === 'swing') { UI.coach = coachPeek(); if (d.v === 'pitch' && UI.coach && UI.coach.kind === 'pitch' && UI.lastPitchPA !== S.game.pa) { UI.sel = UI.coach.pi; UI.loc = UI.coach.loc; } }
     sfx(d.v === 'cmd' ? 'back' : 'select'); renderPanel();
   },
@@ -1202,7 +1204,7 @@ document.addEventListener('submit', e => {
 
 /* ---------- Debug hooks for tests ---------- */
 window.__fc = {
-  get S() { return S; }, UI, FC,
+  get S() { return S; }, UI, FC, PB, save,
   // force the user's current pitcher's bars and redraw (Playwright color checks)
   setBars(o) { const g = S && S.game; if (!g) return false; const t = g.teams[1 - g.half] === g.teams[g.user] ? g.teams[g.user] : g.teams[1 - g.half]; const P = g.P[t.pitcher]; if (!P) return false; if (o.hp != null) P.pt.hp = o.hp; if (o.pastBudget) P.pt.used = (P.pt.B + Math.ceil((P.pt.T - P.pt.B) * 0.75)) * 100; if (o.used != null) P.pt.used = o.used * 100; UI.V = FC.snap(g); refreshBoxes(true); updateBug(UI.V); return true; },
   forceFaint() { const g = S && S.game; if (!g || g.need !== 'pitch') return false; const P = g.P[FC.curPitcherId(g)]; P.pt.min3 = 3; P.pt.hp = 1; g.script = [{ res: 'bip', bt: 'ld', out: 's1' }]; return true; },
