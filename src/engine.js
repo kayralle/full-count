@@ -4,7 +4,7 @@
    modes (Exhibition, Season, Pennant Run) · saving. */
 (function (root) {
 'use strict';
-const DATA = root.DATA || (typeof require !== 'undefined' ? require('./data.js') : null);
+const DATA = (typeof globalThis.DATA !== 'undefined' && globalThis.DATA) || (typeof FULLCOUNT_DATA !== 'undefined' ? FULLCOUNT_DATA : null) || (typeof require !== 'undefined' ? require('./data.js') : null);
 const LG = DATA.league;
 
 /* ================================================================ utils */
@@ -2085,6 +2085,13 @@ function nextGameOf(S) {
   if (S.mode === 'pennant') {
     const pr = S.pr;
     if (S.done) return null;
+    if (pr.extra) {
+      const avg = avgLevel(S), cap = (pr.leader >= 8 ? LEVELS.ELITE[0] : LEVELS.LEADERS[Math.min(7, pr.leader)]) - 2;
+      const lvl = clamp(Math.round(avg - 1 - (pr.games * 7 + 3) % 3), 1, cap);
+      const opts = TEAMS.filter(t => t.abbr !== S.team && !t.custom).map(t => t.abbr);
+      const opp = opts[(hashStr(S.team + 'x' + pr.games) >>> 0) % opts.length];
+      return { opp, home: pr.games % 2 === 0, level: lvl, round: 'route', extra: true, label: 'Extra route game' };
+    }
     if (pr.champ) return { opp: S.champ, home: false, level: LEVELS.CHAMP, round: 'champ', label: 'The Champion' };
     if (pr.e4 != null) return { opp: S.elite[pr.e4], home: pr.e4 % 2 === 1, level: LEVELS.ELITE[pr.e4], round: 'e4', label: `Elite Four, match ${pr.e4 + 1} of 4` };
     if (pr.route < LEVELS.ROUTES) {
@@ -2099,15 +2106,10 @@ function nextGameOf(S) {
   }
   return null;
 }
-function startNext(S, extra) {
-  extra = extra || {};
-  const ng = nextGameOf(S); if (!ng) return null;
-  let away, home, user;
-  if (S.mode === 'exhibition') { away = S.away; home = S.home; user = S.user; }
-  else { user = ng.home ? 1 : 0; away = ng.home ? ng.opp : S.team; home = ng.home ? S.team : ng.opp; }
-  const userAbbr = S.mode === 'exhibition' ? (user === 0 ? away : home) : S.team;
+function userTeamOpts(S, ng) {
+  const uo = {};
+  const userAbbr = S.mode === 'exhibition' ? (S.user === 0 ? S.away : S.home) : S.team;
   const lu = S.lineups && S.lineups[userAbbr];
-  const uo = {}, oo = {};
   if (lu && lu.lineup) { uo.lineup = lu.lineup; uo.positions = lu.positions; }
   if (S.mode === 'season') {
     const rot = buildTeam(S.team, {}).team.rot;
@@ -2115,10 +2117,33 @@ function startNext(S, extra) {
     uo.tired = new Set(Object.keys(S.work).map(Number).filter(id => tiredNow(S, id)));
     uo.injured = new Set(Object.keys(S.inj).map(Number).filter(id => S.inj[id] > 0));
   }
-  if (S.mode === 'pennant') {
-    uo.lvl = id => { const p = S.prog[id] || { lvl: LEVELS.START, ev: {} }; return { level: p.lvl, ev: p.ev }; };
-    oo.lvl = id => ({ level: ng.level, ev: opponentEVs(id, ng.level) });
-  }
+  if (S.mode === 'pennant') uo.lvl = id => { const p = S.prog[id] || { lvl: LEVELS.START, ev: {} }; return { level: p.lvl, ev: p.ev }; };
+  return { uo, userAbbr };
+}
+// The user's team as the next game would field it (lineup card), honoring saved lineups if they're still valid.
+function planTeam(S) {
+  const ng = nextGameOf(S); if (!ng) return null;
+  const { uo, userAbbr } = userTeamOpts(S, ng);
+  let plan;
+  try { plan = buildTeam(userAbbr, uo); } catch (e) { plan = null; }
+  if (!plan || (uo.lineup && !validLineup(plan, uo))) { delete uo.lineup; delete uo.positions; plan = buildTeam(userAbbr, uo); if (S.lineups) delete S.lineups[userAbbr]; }
+  return { ng, abbr: userAbbr, team: plan.team, P: plan.P, opts: uo };
+}
+function validLineup(plan, uo) {
+  const t = plan.team; if (!uo.lineup || uo.lineup.length !== 9) return false;
+  const need = ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'];
+  const have = t.lineup.map(id => t.posOf[id]).sort();
+  return t.lineup.every(id => plan.P[id] && plan.P[id].kind === 'H') && need.slice().sort().join() === have.join();
+}
+function startNext(S, extra) {
+  extra = extra || {};
+  const ng = nextGameOf(S); if (!ng) return null;
+  let away, home, user;
+  if (S.mode === 'exhibition') { away = S.away; home = S.home; user = S.user; }
+  else { user = ng.home ? 1 : 0; away = ng.home ? ng.opp : S.team; home = ng.home ? S.team : ng.opp; }
+  const { uo } = userTeamOpts(S, ng);
+  const oo = {};
+  if (S.mode === 'pennant') oo.lvl = id => ({ level: ng.level, ev: opponentEVs(id, ng.level) });
   if (extra.userStarter != null) uo.starter = extra.userStarter;
   const seed = extra.seed != null ? extra.seed : (S.seed != null ? (S.seed + 7919 * (S.results.length + 1)) >>> 0 : undefined);
   S.game = newGame({ away, home, user: user == null ? null : user, difficulty: S.difficulty, seed, mode: S.mode, label: ng.label,
@@ -2127,6 +2152,14 @@ function startNext(S, extra) {
   if (extra.auto) return S.game;
   runUntilUser(S.game);
   return S.game;
+}
+// The opponent as the next game would field it (hub and lineup card previews).
+function opponentTeam(S) {
+  const ng = nextGameOf(S); if (!ng) return null;
+  const abbr = S.mode === 'exhibition' ? (S.user === 0 ? S.home : S.away) : ng.opp;
+  const oo = S.mode === 'pennant' ? { lvl: id => ({ level: ng.level, ev: opponentEVs(id, ng.level) }) } : {};
+  const b = buildTeam(abbr, oo);
+  return { abbr, team: b.team, P: b.P, level: ng.level || null };
 }
 function opponentEVs(id, L) {
   const v = view(id); if (!v) return {};
@@ -2185,7 +2218,8 @@ function finishGame(S) {
   if (S.mode === 'pennant') {
     res.levelUps = applyPennantXP(S, g, ng);
     const pr = S.pr; pr.games++;
-    if (res.round === 'route') { pr.route++; if (pr.leader >= 8 && pr.route >= LEVELS.ROUTES) pr.e4 = 0; }
+    if (res.round === 'route' && pr.extra) pr.extra = false;
+    else if (res.round === 'route') { pr.route++; if (pr.leader >= 8 && pr.route >= LEVELS.ROUTES) pr.e4 = 0; }
     else if (res.round === 'leader') {
       if (win) { pr.badges.push(S.leaders[pr.leader]); pr.leader++; pr.route = 0; }
       else pr.retries[pr.leader] = (pr.retries[pr.leader] || 0) + 1;
@@ -2293,7 +2327,7 @@ const FC = {
   newGame, runUntilUser, userPitch, userSwing, userRun, userBullpen, userVisit, userPinch, userPinchRun, userAuto, coachCall, simToEnd,
   runOptions, bullpenState, visitState, benchState, pitchInfo, boxScore, snap, curBatterId, curPitcherId, fieldSide, batSide, isUser,
   barPenalties, hpColor, ftgColor, pfOf, budgetOf, tankOf, canRemove, autoLineup, buildTeam,
-  newExhibition, newSeason, newPennant, nextGameOf, startNext, finishGame, strengths, rankedTeams, avgLevel, opponentEVs,
+  newExhibition, newSeason, newPennant, nextGameOf, startNext, finishGame, planTeam, tiredNow, opponentTeam, strengths, rankedTeams, avgLevel, opponentEVs,
   pack, unpack, projectLine, ipStr, lastName, log5, clamp, newTally, SEASON_GAMES, PO_LABEL,
   _t: { matchupTargets, solveKnobs, countDP, baseCtx, bbMix, bipCalib, pitchProbs, SOLVE_CACHE, buildCtx, aiPitch, aiSwing, startPA, resolvePitch, faintNow, bringIn, visit, applyBars, checkFaint, scoreRunner, endHalf, initPitching, pickReliever, positionPlayerPitcher, tiredNow },
 };
