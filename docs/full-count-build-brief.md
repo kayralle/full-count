@@ -10,9 +10,11 @@ A Pokémon-style baseball game. Every plate appearance is a one-on-one battle be
 
 > Build "Full Count", a browser baseball game, following `full-count-build-brief.md` in this folder. Read the whole brief first. Work in this order: (1) the data script, (2) the engine with headless simulations until the calibration targets in section 6 pass, (3) the UI, (4) the player editor, (5) Playwright tests at 390px width. Use `pick-and-roll-offline.html` in this folder as the reference for the battle screen, menus, text box, playback queue, sprites and save system; reuse its patterns rather than inventing new ones. Show me the simulation results before you build the UI.
 
-Put these files in the project folder before you start:
+Put these files in the project folder before you start (in this repo: `docs/full-count-build-brief.md` and `reference/pick-and-roll-offline.html`):
 - `full-count-build-brief.md` (this file)
 - `pick-and-roll-offline.html` (the basketball game; it has the UI patterns to copy)
+
+The types, levels, IVs, EVs and Pennant Run in section 11 are part of the engine and are calibrated with it.
 
 ---
 
@@ -25,7 +27,7 @@ Put these files in the project folder before you start:
 | Screen | Phone first (390px wide), works on desktop. Dark, handheld-game look, like Pick & Roll |
 | Game length | 6 innings. Extra innings with a runner on second (the MLB rule) if tied |
 | Your role | Both sides. On defense you call every pitch. On offense you pick every swing approach |
-| Modes | **Exhibition** (any two teams, either one can be yours) and **Season** (short schedule plus playoffs, as in Pick & Roll) |
+| Modes | **Exhibition** (any two teams, either one can be yours), **Season** (short schedule plus playoffs, as in Pick & Roll) and **Pennant Run** (Pokémon-style leveling through Division Leaders, the Elite Four and the Champion, section 11) |
 | Saving | `localStorage`, wrapped in try/catch. Game state saves after every pitch, so a reload resumes mid-at-bat |
 | Art | Original pixel sprites drawn in code: pitcher and batter, in team colors. No MLB logos, uniform marks or photos. Keep Pick & Roll's sprite-folder loader (`sprites/<player-name>.png`) |
 
@@ -64,7 +66,9 @@ Pull the 2026 regular season. Claude Code runs on your computer, so these source
 - Hitters: Contact (inverse K%), Power (HR/PA and ISO), Eye (BB%), Gap (2B+3B rate), Speed (sprint speed, SB), Fielding (OAA)
 - Pitchers: Stuff per pitch (whiff% and run value), Control (inverse BB%), Movement (GB%, low HR rate), Stamina (pitches per start or per relief appearance; it sets his Fatigue budget, section 5)
 
-The engine runs on **the underlying rates**. Ratings are a readable layer, and editing a rating shifts the rates behind it (section 8).
+The engine runs on **the underlying rates**. Ratings are a readable layer, and editing a rating shifts the rates behind it (section 8). Ratings are also the base stats for levels, IVs and EVs (section 11).
+
+**For types (section 11), also pull:** barrel rate, fly-ball rate and pull% (Savant batted-ball and custom leaderboards), wOBA and xwOBA for hitters and pitchers (Savant expected statistics), intentional walks, HBP, games and saves (Stats API). Store each player's 1–2 types with the reason.
 
 ---
 
@@ -73,8 +77,8 @@ The engine runs on **the underlying rates**. Ratings are a readable layer, and e
 Resolve **pitch by pitch**, so the count drives the back-and-forth.
 
 ### Pitcher (you on defense)
-- **PITCH** opens his four real pitches in a 2×2 grid, Pokémon-move style. Each shows its type, velocity, usage and how it plays against this batter.
-- Pitch families act like Pokémon types: **Fastball** (4-seam, sinker, cutter), **Breaking** (slider, sweeper, curve), **Offspeed** (changeup, splitter).
+- **PITCH** opens his four real pitches in a 2×2 grid, Pokémon-move style. Each shows its type (section 11), velocity, usage and how it plays against this batter.
+- Each pitch also has a **pitch family** for the read game: **Fastball** (4-seam, sinker, cutter), **Breaking** (slider, sweeper, curve), **Offspeed** (changeup, splitter). Families are not types.
 - After the pitch, pick a **location**:
   - **Attack the zone:** likely strike, more contact
   - **Paint the edge:** fewer good swings, more balls
@@ -85,7 +89,7 @@ Resolve **pitch by pitch**, so the count drives the back-and-forth.
 
 ### Batter (you on offense)
 - **SWING** opens the approaches:
-  - **Sit fastball** / **Sit breaking** / **Sit offspeed:** guess the family. A right guess is "super effective": better contact and harder hits. A wrong guess raises whiffs.
+  - **Sit fastball** / **Sit breaking** / **Sit offspeed:** guess the family. A right guess is a "good read": better contact and harder hits. A wrong guess raises whiffs.
   - **Protect:** two-strike contact; fewer strikeouts, weaker hits
   - **Swing big:** more power, more whiffs
   - **Take:** don't swing; good when the pitcher is wild
@@ -93,9 +97,9 @@ Resolve **pitch by pitch**, so the count drives the back-and-forth.
 - **BENCH:** pinch hitter (between plate appearances), pinch runner
 - **AUTO:** the hitting coach takes over for the inning
 
-### The read chart (the Pokémon type chart)
-- A grid of pitch family × batter guess, plus location × approach, shown in a **Chart** tab like Pick & Roll's.
-- Show the result in the text box: "He sat on the slider. It's super effective!" or "Fooled him!"
+### The read chart
+- A grid of pitch family × batter guess, plus location × approach, shown in a **Chart** tab like Pick & Roll's. The same tab has the 18-type chart (section 11).
+- Show the result in the text box: "He sat on the slider. Good read!" or "Fooled him!" "Super effective" is kept for the type chart.
 
 ### How one pitch resolves
 1. **Ball or strike in the zone:** from the pitcher's Control, the location, his Health and Fatigue bars (section 5) and the count.
@@ -104,6 +108,7 @@ Resolve **pitch by pitch**, so the count drives the back-and-forth.
 4. **Foul, or ball in play.**
 5. **For balls in play:** batted-ball type (grounder, liner, fly, popup) from the hitter's and pitcher's GB/FB tendencies. Then the outcome (out, 1B, 2B, 3B, HR) from the hitter's power and BABIP vs. the pitcher's HR rate and BABIP allowed, nudged by the defense's fielding.
 6. **Combine hitter and pitcher rates with the log5 method** against league averages, so a great hitter vs. a great pitcher lands where it should.
+7. **Type and level shifts** (section 11) are small capped log-odds nudges applied to the inputs of steps 1, 3 and 5. At equal levels they average out to nothing across the league.
 
 ### Narration and effects
 - Every event becomes a line in the text box with a snapshot for playback (the Pick & Roll event bus): pitch thrown, swing, contact, result, runners moving.
@@ -242,6 +247,21 @@ Also check:
 - Bots: "Never pull" (his starter leaves only by fainting; opponents score 0.10–0.50 more runs per 6 innings than against AI management). "Pull early" (pulls at 0.8B; win rate within ±2 points of the standard bot). "Grinder" (always Take or Protect; wins no more than the sharp bot). The sharp bot still wins 60–65% on Pro.
 - Tune in this order: base rates, the Fatigue base cost, the AI hooks, run damage (10), then the settled-in heal (8).
 
+**Types and levels (section 11).** Calibrate with types on, everyone at level 50, IVs as in the data and EVs at 0.
+
+| Check | Target |
+|---|---|
+| Section 6 table with types on | passes |
+| Types off vs on (same seeds, 10,000 games) | runs per team per 6 innings within ±0.05; K%, BB%, HR/PA within ±0.3 points |
+| League mean of centered pitch and swing edges | within ±0.02 |
+| Any one player's line vs a league-average opponent, types on vs off | wOBA within ±.006 |
+| Largest type shift on any probability | ≤ 0.30 log-odds |
+| Pitches showing "super effective" text | 3–12% of strikeouts and swinging strikes |
+| Level gap +5 / +10 / +20, same team both sides | win rate 56–62% / 63–72% / 78–90% |
+| XP pace, everyday player, equal levels | 1.0–1.4 levels per game |
+| EVs to 510, everyday player | 35–60 games |
+| Pennant Run, sharp bot, playing route games as offered | beats every leader with at most 3 retries each, and reaches the Champion in 45–70 games |
+
 ---
 
 ## 7. Screens
@@ -255,6 +275,8 @@ Also check:
 5. **Postgame:** line score, box score, player of the game.
 6. **Season hub** (Season mode): schedule, standings vs. your opponents, next game, roster (rotation turn, tired relievers and injured pitchers marked).
 7. **Player editor** (section 8): reachable from the title, team picker, lineup card and season hub.
+8. **Pennant Run hub** (section 11): pennants won, next Division Leader and its level, route button, lineup levels with EXP bars, and a level-up screen after each game ("Judge grew to Lv. 23!").
+9. **Types everywhere:** colored type chips and "Lv. 50" on both status boxes in the battle screen, on the lineup card and in the editor. The Chart tab shows the read chart and the 18-type chart.
 
 ---
 
@@ -266,6 +288,7 @@ Also check:
 - Name, team, positions, bats/throws, role (SP/RP/CL)
 - Hitter ratings: Contact, Power, Eye, Gap, Speed, Fielding, each a slider (1–99) beside the real stat it came from (for example "Power 88 · 34 HR, .260 ISO")
 - Pitcher ratings: Control, Movement, Stamina, plus the four pitches. Stamina moves his budget along the real range of all pitchers (about 12 to 105 pitches) and shows it: "Stamina 82 · 88 P/GS → budget 88, tank 114". Health is read-only: "Health 100 (all pitchers)". For each pitch: change its type, velocity, usage and Stuff, or add/remove a pitch (max 4)
+- Types, level, IVs and EVs (section 11): Type 1 and Type 2 from the 18 with the data's reason shown, level 1–100, IV 0–31 and EV 0–252 per stat with the 510 total
 - Live preview: "Projected: .280 / .350 / .510, 32 HR per 600 PA", from a quick simulation or the rate formulas
 
 **Create a player:** blank or copy an existing one. Custom players get a "Custom" tag.
@@ -311,6 +334,15 @@ Also check:
   - BULLPEN shows its 3-batter reason when disabled.
   - Reload on the forced picker reopens it. Reload after a mid at-bat change restores the reliever, count, runners, score and both bars.
   - In the full random game, every pitcher who left has an exit tag or was a voluntary change, and the "pitched to N batters" notes match the play-by-play.
+- **Types and levels, headless:**
+  - The chart matches Gen 6+ in all 324 cells (51 at 2×, 61 at ½×, 8 at 0×). Dual types multiply. STAB is 1.5×. A 0× edge is −2, so no outcome ever has probability 0.
+  - Centered edges average to 0 per pitch type, per hitter type combo and per pitcher. A type-only shift never passes 0.30 log-odds.
+  - Text lines follow the raw multiplier and appear only on decisive events.
+  - Stat formula, Medium Fast curve (level L at L³ XP), XP scaling by opponent level, Exp Share at half.
+  - EV caps: 252 per stat and 510 total. Batters gain EVs in the stat that answers the pitcher's best tool, and pitchers the same.
+  - Level gap: equal levels change nothing (same seed, same game at 50/50 and 70/70).
+  - Pennant Run: stage table, retry after a loss, Elite Four reset on a loss, and save and restore mid-game and between games.
+- **Types and levels, Playwright:** type chips and levels render on both status boxes; a pitch card shows "Super effective" against a matching batter; the Chart tab shows the 18-type chart; a level-up screen appears after a Pennant Run game; editing a player's types and level persists through reload and export/import.
 
 ---
 
@@ -320,4 +352,169 @@ Also check:
 - The calibration tables in section 6 pass, pitcher-bar rows included, and Claude Code shows you the numbers.
 - Pitchers faint, are replaced and are scored under MLB rules as in section 5, and a faint never changes a play.
 - Every player can be edited, created, reset, exported and imported.
+- Types follow the Pokémon chart exactly, levels and EVs grow in Pennant Run, and equal-level play is still real baseball (section 11).
 - `python data/build_data.py && node build.js` refreshes the stats any time.
+
+---
+
+## 11. Types, levels, IVs and EVs
+
+It's still baseball. Types, levels, IVs and EVs only shift the odds the engine already uses, by small capped amounts, plus how much Health a hit takes off a pitcher. They never decide what a hit, out, run or win is, and they never make any outcome impossible.
+
+### The 18 types
+
+The chart is the Pokémon Gen 6+ chart, cell for cell. Only the names change.
+
+| Pokémon type | Baseball type | Who gets it (from 2026 stats; editable) |
+|---|---|---|
+| Normal | **Grinder** | Anyone with no other type. Everyday, no loud tool |
+| Fire | **Fireballer** | Pitchers: 4-seam average 96.5+ mph, or K% 30+ |
+| Water | **Table Setter** | Hitters: BB% 11+ and OBP .340+ |
+| Electric | **Speedster** | Hitters: sprint speed 29.0+ ft/s, or 25+ SB |
+| Grass | **Spray Hitter** | Hitters: pull% under 37 and K% under 20 |
+| Ice | **Closer** | Pitchers: role CL, or 10+ saves, or a reliever whose slider/sweeper usage is 40%+ with K% 28+ |
+| Fighting | **Slugger** | Hitters: Power 85+ |
+| Poison | **Junkballer** | Pitchers: fastest pitch averages under 91 mph, or slurve, screwball or eephus usage 15%+ |
+| Ground | **Gold Glove** | Hitters: OAA +8 or better |
+| Flying | **Launcher** | Hitters: barrel rate 12%+, or fly-ball rate 45%+ with 20+ HR per 600 PA |
+| Psychic | **Crafty** | Pitchers: changeup usage 20%+, or fastest pitch under 92.5 mph with xwOBA allowed under league |
+| Bug | **Pest** | Hitters: K% under 14 and Power under 50 |
+| Rock | **Curveballer** | Pitchers: curve or knuckle-curve usage 25%+ |
+| Ghost | **Knuckleballer** | Pitchers: throws a knuckleball, or splitter/forkball usage 25%+ (they die like a knuckler) |
+| Dragon | **Franchise** | Top 6% of hitters by wOBA (400+ PA) and top 6% of pitchers by K−BB% (60+ IP or 40+ relief games) |
+| Dark | **Intimidator** | Hitters: 6+ intentional walks. Pitchers: HBP rate in the top 10% with K% 25+ |
+| Steel | **Workhorse** | Hitters: 155+ games. Pitchers: top 15% in pitches per start, or GB% 52+ |
+| Fairy | **Lucky Charm** | Hitters: wOBA beat xwOBA by .025+. Pitchers: xwOBA beat wOBA by .025+ |
+
+- A player has 1 or 2 types. Rank the rules he passes by how far past the line he is and keep the top 2. Nobody passes: Grinder.
+- Store types in `src/data.js` with the reason ("Fireballer · 98.1 mph 4-seam"), so the editor can show it.
+
+**The famous matchups read as baseball:**
+- "You can't muscle up on a knuckler." Slugger and Grinder swings don't affect a Knuckleballer (0×).
+- "Speed doesn't beat a Gold Glove" (Speedster → Gold Glove 0×), and "no glove catches it over the fence" (Gold Glove → Launcher 0×).
+- "Mind games don't rattle the Intimidator" (Crafty → Intimidator 0×). "Junk doesn't faze a Workhorse" (Junkballer → Workhorse 0×). "Star power can't beat luck" (Franchise → Lucky Charm 0×).
+- The changeup fools the Slugger (Crafty → Slugger 2×). Patience beats heat (Table Setter → Fireballer 2×). Sliders beat uppercut swings (Closer → Launcher 2×). The walk-off: Slugger → Closer 2×. The bloop single off the ace: Lucky Charm → Franchise 2×.
+
+### The chart
+
+Attacking type against the defending player's type. Dual types multiply (2 × 2 = 4×, ½ × ½ = ¼×, any 0 = 0×). Every cell not listed is 1×. Counts: 51 cells at 2×, 61 at ½×, 8 at 0×.
+
+| Attacking type | 2× against | ½× against | 0× (no effect) against |
+|---|---|---|---|
+| **Grinder** | — | Curveballer, Workhorse | Knuckleballer |
+| **Fireballer** | Spray Hitter, Closer, Pest, Workhorse | Fireballer, Table Setter, Curveballer, Franchise | — |
+| **Table Setter** | Fireballer, Gold Glove, Curveballer | Table Setter, Spray Hitter, Franchise | — |
+| **Speedster** | Table Setter, Launcher | Speedster, Spray Hitter, Franchise | Gold Glove |
+| **Spray Hitter** | Table Setter, Gold Glove, Curveballer | Fireballer, Spray Hitter, Junkballer, Launcher, Pest, Franchise, Workhorse | — |
+| **Closer** | Spray Hitter, Gold Glove, Launcher, Franchise | Fireballer, Table Setter, Closer, Workhorse | — |
+| **Slugger** | Grinder, Closer, Curveballer, Intimidator, Workhorse | Junkballer, Launcher, Crafty, Pest, Lucky Charm | Knuckleballer |
+| **Junkballer** | Spray Hitter, Lucky Charm | Junkballer, Gold Glove, Curveballer, Knuckleballer | Workhorse |
+| **Gold Glove** | Fireballer, Speedster, Junkballer, Curveballer, Workhorse | Spray Hitter, Pest | Launcher |
+| **Launcher** | Spray Hitter, Slugger, Pest | Speedster, Curveballer, Workhorse | — |
+| **Crafty** | Slugger, Junkballer | Crafty, Workhorse | Intimidator |
+| **Pest** | Spray Hitter, Crafty, Intimidator | Fireballer, Slugger, Junkballer, Launcher, Knuckleballer, Workhorse, Lucky Charm | — |
+| **Curveballer** | Fireballer, Closer, Launcher, Pest | Slugger, Gold Glove, Workhorse | — |
+| **Knuckleballer** | Crafty, Knuckleballer | Intimidator | Grinder |
+| **Franchise** | Franchise | Workhorse | Lucky Charm |
+| **Intimidator** | Crafty, Knuckleballer | Slugger, Intimidator, Lucky Charm | — |
+| **Workhorse** | Closer, Curveballer, Lucky Charm | Fireballer, Table Setter, Speedster, Workhorse | — |
+| **Lucky Charm** | Slugger, Franchise, Intimidator | Fireballer, Junkballer, Workhorse | — |
+
+### Moves and attacks
+
+A plate appearance has two attacks.
+
+**The pitch is the pitcher's move.** Each pitch has a type, attacking the batter's types:
+
+| Pitch | Type |
+|---|---|
+| 4-seam, 95+ mph | Fireballer |
+| 4-seam under 95, eephus, position-player lob | Grinder |
+| Sinker, cutter | Workhorse |
+| Slider, sweeper | Closer |
+| Curve, knuckle-curve, slow curve | Curveballer |
+| Changeup | Crafty |
+| Splitter, forkball, knuckleball | Knuckleballer |
+| Slurve, screwball | Junkballer |
+
+- STAB (same-type attack bonus): a pitch whose type matches one of the pitcher's types is 1.5×.
+- The pitch card shows its type and how it plays against this batter: "Super effective", "Not very effective", "No effect".
+
+**The swing is the batter's move.** When the batter swings, he attacks with the better of his own types against the pitcher's types (the way a trainer picks his best move). It's his own type, so STAB is always on, and centering (below) cancels it out.
+
+### How a multiplier enters the engine
+
+Turn every multiplier into an edge: e = log2(multiplier), so 2× is +1, ½× is −1, 4× is +2. A 0× counts as ¼× (e = −2). "No effect" means the type gives no help at all. The pitch can still be hit, and the swing can still get a hit.
+
+**Centering.** Real stats already contain every matchup a player had. So at load, and again after any edit to types or rosters:
+- Pitch edges: subtract the league-average edge of that pitch type over all hitters (weighted by PA), subtract each hitter type combo's league-average edge over all pitches (weighted by usage), and add back the overall mean.
+- STAB: subtract each pitcher's usage-weighted average STAB, so STAB makes his signature pitches better and his others a bit worse, but his overall line stays real.
+- Swing edges: the same double-centering over batters × pitchers.
+- So against a league-average opponent, every real player still produces his real 2026 line. Types only move the matchups.
+
+**Effects** (centered edges eP for the pitch, eS for the swing), as log-odds shifts before the log5 step:
+- Whiff on a swing: +0.10 × eP
+- Hit on a ball in play: −0.08 × eP + 0.08 × eS
+- Home run on a ball in play: −0.10 × eP + 0.10 × eS
+- Cap: types move any single probability by at most ±0.30 in log-odds. All probabilities stay within 0.02–0.95.
+- Health damage on a hit: × clamp(2^(0.35 × eS), 0.70, 1.40). It's the only way types touch the bars.
+
+**Text.** Lines use the raw chart multiplier, not the centered edge, so they match the chart the player reads. Show them only on a decisive event, never on every pitch:
+- Swinging strike or strikeout on a 2×+ pitch: "It's super effective!"
+- A hit off a ½× or 0× pitch: "It's not very effective..." / "It doesn't affect Judge..."
+- A hit with a 2×+ swing: "It's super effective!", and the bigger Health drop shows.
+
+The read game in section 4 is separate. Sitting on the right pitch family is a "Good read!", not "super effective".
+
+### Levels and stats
+
+- Every player has a level from 1 to 100. Exhibition and Season use level 50 for everyone unless you edit a player's level, so equal levels mean real baseball.
+- **Base stats are the ratings.** Hitters: Contact, Power, Eye, Gap, Speed, Fielding. Pitchers: Stuff, Control, Movement, Stamina. Health stays 100 for every pitcher (section 5).
+- Shown stat (the Pokémon formula, for the status screen): Stat = floor((2 × (rating + 20) + IV + floor(EV ÷ 4)) × level ÷ 100) + 5.
+- **What the engine reads:** effective rating = rating + 3 × (IV − 15.5) ÷ 15.5 + 6 × EV ÷ 252, then mapped to rates exactly like an edited rating (section 8). IVs move a rating by up to ±3 points and EVs by up to +6.
+- **Level gap:** D = batter level − pitcher level, capped at ±25. Shift the batter's whiff by −0.015 × D, hit on ball in play by +0.015 × D, home run by +0.015 × D, and the pitcher's in-zone rate by −0.0075 × D, all in log-odds. Equal levels: no shift.
+
+### IVs
+
+- 0–31 per stat, fixed for each real player from a seeded hash of his id, so everyone sees the same IVs. The league average is about 15.5.
+- Custom players roll IVs when created. The editor can set any IV.
+
+### EVs
+
+EVs are what you learn from who you face. 0–252 per stat, 510 total. They're only earned in Pennant Run, or set in the editor.
+- **Batters, per plate appearance:** 3 EVs (4 against a Franchise pitcher) in the stat that answers the pitcher's best tool. Stuff trains Contact ("facing flamethrowers trains your Contact"). Control trains Eye. Movement trains Power (you learn to lift sinkers).
+- Gap +2 per extra-base hit. Speed +2 per steal or extra base taken. Fielding +1 per game played in the field.
+- **Pitchers, per batter faced:** 1 EV (2 against a Franchise hitter) in the stat that answers the batter's best tool. Contact trains Stuff (you have to miss bats). Eye trains Control. Power trains Movement. Stamina +1 per inning pitched.
+- Past a stat's 252, or the 510 total, EVs stop.
+
+### XP and leveling (Pennant Run)
+
+- Curve: Medium Fast. Total XP for level L is L³.
+- Gain per event: units × 0.8 × L_opp² × ((2 × L_opp + 10) ÷ (L_opp + L_self + 10))^2.5, rounded, minimum 1. Facing higher levels pays more and lower levels less, as in Pokémon.
+- Units: batters 1 per plate appearance, +0.5 per hit, +1 per home run, +0.5 per RBI. Pitchers 0.8 per batter faced, +0.4 per strikeout, +1 for a win and +1 for a save.
+- **Exp Share:** every rostered player who didn't play gets half the average units of the players who did.
+- Target pace: an everyday player gains about 1.2 levels per game against equal-level opponents.
+- Level up after the game: "Judge grew to Lv. 23!" with the stat changes, as in Pokémon. Stats change only between games, never mid-game.
+
+### Pennant Run (new mode)
+
+A Pokémon-style journey through the league. Exhibition and Season stay as they are, at level 50.
+- Pick a team. Every player starts at level 5 with his real ratings, his IVs and 0 EVs.
+- The other 29 teams are the world. Eight **Division Leaders** (gym leaders) at levels 12, 18, 24, 30, 36, 42, 48 and 54. Beat one to earn its pennant (badge). You can retry a loss.
+- Between leaders: 4 **route games** against random teams set 1–3 levels below your lineup's average, capped 2 below the next leader. You can play extra route games to grind XP.
+- Then the playoffs: the **Elite Four** (four of the best remaining teams) at levels 60, 62, 64 and 66, back to back. A loss sends you back to the first one. Then the **Champion**, the best team in the data, at level 70.
+- Opponents: every player at the stage level, with IVs from his hash and EVs of 6 × level (max 510) spread by his profile.
+- The hub shows pennants, your lineup's levels with EXP bars, the next opponent and its level, and a route button.
+- One save slot, saved after every pitch like any game.
+
+### Editor and save
+
+- Editor fields: Type 1, Type 2 (or none) from the 18; level 1–100; IV 0–31 per stat; EV 0–252 per stat with the 510 total shown. Each shows its real-data default and resets with the player.
+- Types and level edits apply in Exhibition and Season. Pennant Run keeps its own levels, XP and EVs in its save.
+- Save per player: level, XP, EVs. IVs and types come from the data plus overrides.
+
+### Engine notes
+
+- One TYPES object in engine.js holds the 18 names, colors, the chart, the pitch → type map, the type rules, the constants above and a test hook. One LEVELS object holds the curve, XP units, EV rules and stage table.
+- Centering tables rebuild after any edit. Cache them in memory, not in saves.
+- Type and level randomness: none. The same seed gives the same game with or without the UI.
