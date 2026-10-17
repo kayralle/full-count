@@ -1107,7 +1107,10 @@ function buildTeam(abbr, opts) {
   const ln = id => (base(id - off) || {}).line || {};
   const usage = id => { const l = ln(id), f = (base(id - off) || {}).flag; return (l.gs || 0) * 3 + (l.g || 0) + (l.sv || 0) * 2 + (l.hld || 0) - (f === '2025' ? 15 : 0) + pitcherValue(players[id]) * 4; };
   const sps = avail.filter(id => players[id].role === 'SP').sort((a, b) => usage(b) - usage(a));
-  const rot = sps.slice(0, 5);
+  // an editor rotation (OV.teams) goes first, in its order; real usage fills the rest
+  const tov = OV.teams[abbr] || {};
+  const edRot = (tov.rotation || []).map(i => i + off).filter(id => avail.includes(id));
+  const rot = edRot.concat(sps.filter(id => !edRot.includes(id))).slice(0, 5);
   if (rot.length < 5) for (const id of avail.filter(i => !rot.includes(i)).sort((a, b) => players[b].p.budget - players[a].p.budget)) { if (rot.length >= 5) break; rot.push(id); }
   let starter = opts.starter && avail.includes(opts.starter) ? opts.starter : rot[0];
   const tired = opts.tired || new Set();
@@ -1120,7 +1123,9 @@ function buildTeam(abbr, opts) {
   const fresh = pen.filter(id => !tired.has(id)), tiredPen = pen.filter(id => tired.has(id));
   // lineup
   let lineup, posOf;
+  const edLu = tov.lineup && tov.positions ? { lineup: tov.lineup.map(i => i + off), positions: Object.fromEntries(Object.entries(tov.positions).map(([k, v]) => [Number(k) + off, v])) } : null;
   if (opts.lineup && opts.positions) { lineup = opts.lineup.slice(); posOf = Object.assign({}, opts.positions); }
+  else if (edLu && fullLineup(edLu.lineup, edLu.positions, id => H.includes(id) && !inj.has(id))) { lineup = edLu.lineup; posOf = edLu.positions; }
   else ({ lineup, posOf } = autoLineup(H.filter(id => !inj.has(id)), players));
   const bench = H.filter(id => !lineup.includes(id) && !inj.has(id)).sort((a, b) => hitterValue(players[b]) - hitterValue(players[a])).slice(0, 5);
   const keep = new Set([...lineup, ...bench, starter, ...fresh, ...tiredPen]);
@@ -1131,6 +1136,11 @@ function buildTeam(abbr, opts) {
   const P = {};
   for (const id of keep) P[id] = players[id];
   return { team, P };
+}
+// nine different hitters covering C, 1B, 2B, 3B, SS, LF, CF, RF and DH
+function fullLineup(lineup, positions, ok) {
+  if (!lineup || lineup.length !== 9 || new Set(lineup).size !== 9 || !lineup.every(ok)) return false;
+  return lineup.map(id => positions[id]).sort().join() === ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'].sort().join();
 }
 function autoLineup(H, players) {
   const val = id => hitterValue(players[id]);
@@ -2752,7 +2762,7 @@ const FC = {
   setOverrides: setOverridesAll, rebuildIndex,
   newGame, runUntilUser, userPitch, userSwing, userRun, userBullpen, userVisit, userPinch, userPinchRun, userAuto, coachCall, simToEnd,
   runOptions, bullpenState, visitState, benchState, pitchInfo, boxScore, snap, curBatterId, curPitcherId, fieldSide, batSide, isUser,
-  barPenalties, hpColor, ftgColor, pfOf, budgetOf, tankOf, canRemove, autoLineup, buildTeam,
+  barPenalties, hpColor, ftgColor, pfOf, budgetOf, tankOf, canRemove, autoLineup, fullLineup, buildTeam,
   newExhibition, newSeason, newPennant, nextGameOf, startNext, finishGame, planTeam, tiredNow, opponentTeam, strengths, rankedTeams, avgLevel, opponentEVs,
   pack, unpack, projectLine, ipStr, lastName, log5, clamp, newTally, SEASON_GAMES, PO_LABEL,
   _t: { matchupTargets, solveKnobs, countDP, baseCtx, bbMix, bipCalib, pitchProbs, SOLVE_CACHE, buildCtx, aiPitch, aiSwing, startPA, resolvePitch, faintNow, bringIn, visit, applyBars, checkFaint, scoreRunner, endHalf, initPitching, pickReliever, positionPlayerPitcher, tiredNow },
@@ -3638,6 +3648,7 @@ function edList() {
 function vEditor() {
   const e = UI.ed;
   if (e.id != null && FC.view(e.id)) return vEditPlayer(FC.view(e.id));
+  if (e.panel === 'roster' && e.roster) return vRoster();
   if (e.panel === 'teams') return vEditTeams();
   if (e.panel === 'share') return vShare();
   const list = edList(), shown = list.slice(0, 150);
@@ -3686,7 +3697,7 @@ function vEditPlayer(v) {
   </div></section>
   <section class="card"><h3>Types</h3><div class="row">${typeSel(0, v.types[0])}${typeSel(1, v.types[1])}</div><p class="muted">From the data: ${esc((v.typeWhy || []).join(' · '))}</p></section>
   <section class="card"><h3>Ratings</h3><div class="ed-grid">${stats.map(s => slider(id, s, v)).join('')}</div>
-    ${P ? `<p class="muted">Stamina ${Math.round(v.ratings.stamina)} · budget ${budget}, tank ${FC.tankOf(budget)} pitches. Health 100 (all pitchers).</p>` : ''}
+    ${P ? `<p class="muted">Stamina ${Math.round(v.ratings.stamina)} · ${Math.round(FC.base(id).rate.budget)} ${v.role === 'SP' ? 'P/GS' : 'P per outing'} → budget ${budget}, tank ${FC.tankOf(budget)}. Health 100 (all pitchers).</p>` : ''}
     <p class="proj" id="proj">${esc(projText(id))}</p></section>
   ${P ? `<section class="card"><h3>Pitches</h3>${pitches}${v.pitches.length < 4 ? '<button class="btn sm" data-a="edPitchAdd">Add a pitch</button>' : ''}</section>` : ''}
   <section class="card"><h3>Level, IVs and EVs</h3>
@@ -3703,8 +3714,36 @@ function vEditTeams() {
     <label>Main color<input id="ntC1" type="color" value="${esc(nt.c1)}"></label><label>Trim color<input id="ntC2" type="color" value="${esc(nt.c2)}"></label></div>
     <button class="btn primary sm" data-a="edTeamNew">Create team</button>
     <p class="muted">Move players onto it from their edit sheet (Team). A team needs 9 hitters and 6 pitchers to play.</p></section>
-  <section class="card"><h3>Reset</h3><div class="pool">${FC.TEAMS.map(t => { const n = FC.teamPlayers(t.abbr).filter(edited).length; return `<div class="pr" style="cursor:default"><div><div class="nm">${esc(t.name)} ${t.custom ? '<span class="custom-tag">Custom</span>' : ''}</div><div class="sub">${tmChip(t.abbr)}<span class="pc-stat">${FC.teamPlayers(t.abbr).length} players · ${n} edited</span></div></div><button class="btn ghost sm" data-a="edTeamReset" data-v="${esc(t.abbr)}" ${n || t.custom ? '' : 'disabled'}>${t.custom ? 'Delete' : 'Reset'}</button></div>`; }).join('')}</div>
+  <section class="card"><h3>Batting orders, rotations and resets</h3><div class="pool">${FC.TEAMS.map(t => { const n = FC.teamPlayers(t.abbr).filter(edited).length, ord = !!FC.OV.teams[t.abbr]; return `<div class="pr" style="cursor:default"><div><div class="nm">${esc(t.name)} ${t.custom ? '<span class="custom-tag">Custom</span>' : ''}</div><div class="sub">${tmChip(t.abbr)}<span class="pc-stat">${FC.teamPlayers(t.abbr).length} players · ${n} edited${ord ? ' · custom order' : ''}</span></div></div><span class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn ghost sm" data-a="edRoster" data-v="${esc(t.abbr)}">Order</button><button class="btn ghost sm" data-a="edTeamReset" data-v="${esc(t.abbr)}" ${n || ord || t.custom ? '' : 'disabled'}>${t.custom ? 'Delete' : 'Reset'}</button></span></div>`; }).join('')}</div>
     <button class="btn danger" data-a="edResetAll">${UI.confirmReset ? 'Tap again to reset every edit' : 'Reset everything'}</button></section>`;
+}
+// A team's default batting order and rotation (saved in the edits, used whenever that team plays).
+function rosterDraft(ab) {
+  const ids = FC.teamPlayers(ab), H = ids.filter(id => FC.view(id).kind === 'H');
+  if (H.length < 9 || ids.length - H.length < 5) return null;
+  const { team } = FC.buildTeam(ab);
+  const pit = ids.filter(id => FC.view(id).kind === 'P');
+  const rot = team.rot.concat(pit.filter(id => !team.rot.includes(id)).sort((a, b) => (FC.view(a).role === 'SP' ? 0 : 1) - (FC.view(b).role === 'SP' ? 0 : 1)));
+  return { abbr: ab, lineup: team.lineup.slice(), positions: Object.assign({}, team.posOf), rotation: rot, hitters: H, sel: null, selPos: null, selRot: null };
+}
+function vRoster() {
+  const d = UI.ed.roster, ab = d.abbr;
+  const bench = d.hitters.filter(id => !d.lineup.includes(id));
+  const row = (id, i, isBench) => {
+    const v = FC.view(id), pos = isBench ? (v.pos[0] || 'DH') : d.positions[id];
+    return `<div class="lu-row ${isBench ? 'bench' : ''}" role="button" tabindex="0" data-a="rsPick" data-id="${id}" aria-pressed="${d.sel === id}">
+      <span class="no">${isBench ? '' : i + 1}</span>
+      ${isBench ? `<span class="po" style="opacity:.6">${esc(pos)}</span>` : `<button class="po" data-a="rsPos" data-id="${id}" aria-pressed="${d.selPos === id}" title="Swap positions">${esc(pos)}</button>`}
+      <span class="nm"><b>${esc(v.name)}</b><span class="pc-sub">${typeChips(v.types, true)}<span class="pc-stat">${esc(hitLine(v))}</span></span></span><span class="val">${esc(v.bats)}</span></div>`;
+  };
+  const prow = (id, i) => { const v = FC.view(id); return `<div class="lu-row ${i < 5 ? '' : 'bench'}" role="button" tabindex="0" data-a="rsRot" data-id="${id}" aria-pressed="${d.selRot === id}"><span class="no">${i < 5 ? 'SP' + (i + 1) : ''}</span><span class="po">${esc(v.role || 'P')}</span><span class="nm"><b>${esc(v.name)}</b><span class="pc-sub">${typeChips(v.types, true)}<span class="pc-stat">${esc(pitLine(v))}</span></span></span><span class="val">${v.throws}HP</span></div>`; };
+  const ok = FC.fullLineup(d.lineup, d.positions, () => true);
+  return `<header class="head"><div><p class="eyebrow">Batting order and rotation</p><h2 class="h2">${esc(TEAM(ab).name)}</h2></div><button class="btn ghost sm" data-a="edPanel" data-v="teams">Back</button></header>
+  <p class="hint">Used whenever ${esc(TEAM(ab).short)} play, by you or the computer. Your lineup card in a game or season still wins. Tap two players to swap them.</p>
+  <section class="card"><h3>Batting order</h3><div class="lu">${d.lineup.map((id, i) => row(id, i, false)).join('')}<span class="lu-head">Bench</span>${bench.map(id => row(id, 0, true)).join('') || '<p class="muted">No bench players.</p>'}</div>
+    ${ok ? '' : '<p class="reason">The nine need one each of C, 1B, 2B, 3B, SS, LF, CF, RF and DH.</p>'}</section>
+  <section class="card"><h3>Rotation</h3><p class="muted">The top five start, in order.</p><div class="lu">${d.rotation.map(prow).join('')}</div></section>
+  <div class="dock"><button class="btn ghost" data-a="rsReset">Real order</button><button class="btn primary" data-a="rsSave" ${ok ? '' : 'disabled'}>Save</button></div>`;
 }
 function vShare() {
   const txt = JSON.stringify(FC.OV);
@@ -3913,8 +3952,40 @@ const A = {
     FC.OV.customTeams.push({ id: 9000 + FC.OV.customTeams.length, abbr: short, name: name.trim(), short: name.trim().split(' ').pop(), city: name.trim(), league: 'Custom', division: 'Custom', colors: [c1, c2], custom: true });
     applyOV(); saveEdits(); UI.ed.newTeam = null; UI.ed.msg = `Created ${name.trim()}. Move players to it from their edit sheet.`; render();
   },
+  edRoster(d) { const r = rosterDraft(d.v); if (!r) { UI.ed.msg = `${TEAM(d.v).name} needs at least 9 hitters and 5 pitchers.`; render(); return; } UI.ed.roster = r; UI.ed.panel = 'roster'; UI.ed.msg = ''; render(); window.scrollTo(0, 0); },
+  rsPick(d) {
+    const r = UI.ed.roster, id = +d.id; r.selPos = null;
+    if (r.sel == null) { r.sel = id; sfx('blip'); render(); return; }
+    const a = r.sel, b = id; r.sel = null;
+    const ia = r.lineup.indexOf(a), ib = r.lineup.indexOf(b);
+    if (a !== b && ia >= 0 && ib >= 0) { r.lineup[ia] = b; r.lineup[ib] = a; }
+    else if (a !== b && (ia >= 0 || ib >= 0)) { const inId = ia >= 0 ? b : a, outId = ia >= 0 ? a : b, at = Math.max(ia, ib); r.lineup[at] = inId; r.positions[inId] = r.positions[outId]; delete r.positions[outId]; }
+    sfx('select'); render();
+  },
+  rsPos(d) {
+    const r = UI.ed.roster, id = +d.id; r.sel = null;
+    if (r.selPos == null) { r.selPos = id; sfx('blip'); render(); return; }
+    const a = r.selPos; r.selPos = null;
+    if (a !== id) { const t = r.positions[a]; r.positions[a] = r.positions[id]; r.positions[id] = t; sfx('select'); }
+    render();
+  },
+  rsRot(d) {
+    const r = UI.ed.roster, id = +d.id;
+    if (r.selRot == null) { r.selRot = id; sfx('blip'); render(); return; }
+    const a = r.rotation.indexOf(r.selRot), b = r.rotation.indexOf(id); r.selRot = null;
+    if (a >= 0 && b >= 0 && a !== b) { const t = r.rotation[a]; r.rotation[a] = r.rotation[b]; r.rotation[b] = t; }
+    sfx('select'); render();
+  },
+  rsSave() {
+    const r = UI.ed.roster; if (!FC.fullLineup(r.lineup, r.positions, () => true)) return;
+    const positions = {}; r.lineup.forEach(id => { positions[id] = r.positions[id]; });
+    FC.OV.teams[r.abbr] = { lineup: r.lineup.slice(), positions, rotation: r.rotation.slice(0, 5) };
+    applyOV(); saveEdits(); UI.ed.msg = `Saved the ${TEAM(r.abbr).short} batting order and rotation.`; UI.ed.panel = 'teams'; UI.ed.roster = null; UI.luDraft = null; render();
+  },
+  rsReset() { const ab = UI.ed.roster.abbr; delete FC.OV.teams[ab]; applyOV(); saveEdits(); UI.ed.roster = rosterDraft(ab); UI.ed.msg = ''; render(); },
   edTeamReset(d) {
     const ab = d.v, T = FC.TBY[ab];
+    delete FC.OV.teams[ab];
     for (const id of FC.teamPlayers(ab)) delete FC.OV.players[id];
     if (T && T.custom) { FC.OV.customTeams = FC.OV.customTeams.filter(t => t.abbr !== ab); for (const id in FC.OV.players) if (FC.OV.players[id].team === ab) delete FC.OV.players[id].team; FC.OV.custom.forEach(c => { if (c.team === ab) c.team = 'NYY'; }); }
     applyOV(); saveEdits(); render();

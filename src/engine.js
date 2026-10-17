@@ -682,7 +682,10 @@ function buildTeam(abbr, opts) {
   const ln = id => (base(id - off) || {}).line || {};
   const usage = id => { const l = ln(id), f = (base(id - off) || {}).flag; return (l.gs || 0) * 3 + (l.g || 0) + (l.sv || 0) * 2 + (l.hld || 0) - (f === '2025' ? 15 : 0) + pitcherValue(players[id]) * 4; };
   const sps = avail.filter(id => players[id].role === 'SP').sort((a, b) => usage(b) - usage(a));
-  const rot = sps.slice(0, 5);
+  // an editor rotation (OV.teams) goes first, in its order; real usage fills the rest
+  const tov = OV.teams[abbr] || {};
+  const edRot = (tov.rotation || []).map(i => i + off).filter(id => avail.includes(id));
+  const rot = edRot.concat(sps.filter(id => !edRot.includes(id))).slice(0, 5);
   if (rot.length < 5) for (const id of avail.filter(i => !rot.includes(i)).sort((a, b) => players[b].p.budget - players[a].p.budget)) { if (rot.length >= 5) break; rot.push(id); }
   let starter = opts.starter && avail.includes(opts.starter) ? opts.starter : rot[0];
   const tired = opts.tired || new Set();
@@ -695,7 +698,9 @@ function buildTeam(abbr, opts) {
   const fresh = pen.filter(id => !tired.has(id)), tiredPen = pen.filter(id => tired.has(id));
   // lineup
   let lineup, posOf;
+  const edLu = tov.lineup && tov.positions ? { lineup: tov.lineup.map(i => i + off), positions: Object.fromEntries(Object.entries(tov.positions).map(([k, v]) => [Number(k) + off, v])) } : null;
   if (opts.lineup && opts.positions) { lineup = opts.lineup.slice(); posOf = Object.assign({}, opts.positions); }
+  else if (edLu && fullLineup(edLu.lineup, edLu.positions, id => H.includes(id) && !inj.has(id))) { lineup = edLu.lineup; posOf = edLu.positions; }
   else ({ lineup, posOf } = autoLineup(H.filter(id => !inj.has(id)), players));
   const bench = H.filter(id => !lineup.includes(id) && !inj.has(id)).sort((a, b) => hitterValue(players[b]) - hitterValue(players[a])).slice(0, 5);
   const keep = new Set([...lineup, ...bench, starter, ...fresh, ...tiredPen]);
@@ -706,6 +711,11 @@ function buildTeam(abbr, opts) {
   const P = {};
   for (const id of keep) P[id] = players[id];
   return { team, P };
+}
+// nine different hitters covering C, 1B, 2B, 3B, SS, LF, CF, RF and DH
+function fullLineup(lineup, positions, ok) {
+  if (!lineup || lineup.length !== 9 || new Set(lineup).size !== 9 || !lineup.every(ok)) return false;
+  return lineup.map(id => positions[id]).sort().join() === ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'].sort().join();
 }
 function autoLineup(H, players) {
   const val = id => hitterValue(players[id]);
@@ -2327,7 +2337,7 @@ const FC = {
   setOverrides: setOverridesAll, rebuildIndex,
   newGame, runUntilUser, userPitch, userSwing, userRun, userBullpen, userVisit, userPinch, userPinchRun, userAuto, coachCall, simToEnd,
   runOptions, bullpenState, visitState, benchState, pitchInfo, boxScore, snap, curBatterId, curPitcherId, fieldSide, batSide, isUser,
-  barPenalties, hpColor, ftgColor, pfOf, budgetOf, tankOf, canRemove, autoLineup, buildTeam,
+  barPenalties, hpColor, ftgColor, pfOf, budgetOf, tankOf, canRemove, autoLineup, fullLineup, buildTeam,
   newExhibition, newSeason, newPennant, nextGameOf, startNext, finishGame, planTeam, tiredNow, opponentTeam, strengths, rankedTeams, avgLevel, opponentEVs,
   pack, unpack, projectLine, ipStr, lastName, log5, clamp, newTally, SEASON_GAMES, PO_LABEL,
   _t: { matchupTargets, solveKnobs, countDP, baseCtx, bbMix, bipCalib, pitchProbs, SOLVE_CACHE, buildCtx, aiPitch, aiSwing, startPA, resolvePitch, faintNow, bringIn, visit, applyBars, checkFaint, scoreRunner, endHalf, initPitching, pickReliever, positionPlayerPitcher, tiredNow },

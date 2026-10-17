@@ -559,3 +559,34 @@ test('Pennant Run: a level-up screen after a game; editor types and level persis
   assert.deepEqual(p.errors, []);
   await p.context().close();
 });
+
+test('editor rosters: a team\'s batting order and rotation are saved and used by the lineup card', async () => {
+  const p = await open();
+  await p.click('[data-a=editor]');
+  await p.click('[data-a=edPanel][data-v=teams]');
+  await p.click('[data-a=edRoster][data-v=NYY]');
+  const d0 = await p.evaluate(() => { const r = __fc.UI.ed.roster; return { lineup: r.lineup.slice(), rot: r.rotation.slice() }; });
+  // swap the first two hitters and the first two starters
+  await p.click(`.lu-row[data-a=rsPick][data-id="${d0.lineup[0]}"]`);
+  await p.click(`.lu-row[data-a=rsPick][data-id="${d0.lineup[1]}"]`);
+  await p.click(`.lu-row[data-a=rsRot][data-id="${d0.rot[0]}"]`);
+  await p.click(`.lu-row[data-a=rsRot][data-id="${d0.rot[1]}"]`);
+  await shot(p, '17-editor-roster', true);
+  await p.click('[data-a=rsSave]');
+  await p.reload();
+  await p.click('[data-a=editor]');
+  await p.click('[data-a=edBack]');
+  await newExhibition(p, { home: true, team: 'NYY' });
+  const card = await p.evaluate(() => { const d = __fc.UI.luDraft; return { first: d.lineup[0], second: d.lineup[1], starter: d.starter }; });
+  assert.deepEqual(card, { first: d0.lineup[1], second: d0.lineup[0], starter: d0.rot[1] });
+  // back to the real order
+  await p.click('[data-a=lineupBack]');
+  await p.click('[data-a=editor]');
+  await p.click('[data-a=edPanel][data-v=teams]');
+  await p.click('[data-a=edRoster][data-v=NYY]');
+  await p.click('[data-a=rsReset]');
+  assert.deepEqual(await p.evaluate(() => __fc.UI.ed.roster.lineup), d0.lineup);
+  assert.equal(await p.evaluate(() => __fc.FC.OV.teams.NYY), undefined);
+  assert.deepEqual(p.errors, []);
+  await p.context().close();
+});
