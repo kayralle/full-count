@@ -257,7 +257,7 @@ TYPES.label = m => m === 0 ? 'No effect' : m >= 2 ? 'Super effective' : m <= 0.5
 
 /* ================================================================ LEVELS (section 11) */
 const LEVELS = {
-  K_LEVEL: 0.015, CAP: 25,
+  K_LEVEL: 0.018, CAP: 25,
   xpFor: L => L <= 1 ? 0 : Math.round(L * L * L),            // Medium Fast
   levelOf: xp => { let L = 1; while (L < 100 && LEVELS.xpFor(L + 1) <= xp) L++; return L; },
   ivBonus: iv => 3 * ((iv == null ? 15.5 : iv) - 15.5) / 15.5,
@@ -265,8 +265,8 @@ const LEVELS = {
   shownStat: (rating, iv, ev, L) => Math.floor((2 * (rating + 20) + (iv || 0) + Math.floor((ev || 0) / 4)) * L / 100) + 5,
   EV_MAX: 252, EV_TOTAL: 510,
   // XP units per event (section 11)
-  U: { pa: 1, hit: 0.5, hr: 1, rbi: 0.5, bf: 0.8, k: 0.4, win: 1, save: 1 },
-  XP_K: 0.8,
+  U: { pa: 1, hit: 0.5, hr: 1, rbi: 0.5, bf: 0.3, k: 0.15, app: 1, win: 1, save: 1 },
+  XP_K: 1.2,
   gain(units, Lopp, Lself) {
     if (units <= 0) return 0;
     const s = Math.pow((2 * Lopp + 10) / (Lopp + Lself + 10), 2.5);
@@ -402,7 +402,7 @@ const M = {
     protect: { sz: 0.60, so: 0.45, c: 0.55, f: 0.45, h: -0.25, hr: -0.55 },
     big: { sz: 0.20, so: 0.10, c: -0.45, f: -0.20, h: 0.05, hr: 0.40 },
     take: { sz: -9, so: -9, c: 0, f: 0, h: 0, hr: 0 },
-    sitRight: { sz: 0.40, so: 0.20, c: 0.35, f: 0, h: 0.25, hr: 0.30 },
+    sitRight: { sz: 0.40, so: 0.20, c: 0.55, f: 0, h: 0.40, hr: 0.50 },
     sitWrong: { sz: -0.30, so: -0.40, c: -0.45, f: 0, h: -0.10, hr: -0.15 },
   },
   // ball-in-play quality by location [hit, hr], and for out-of-zone contact
@@ -415,7 +415,7 @@ const M = {
   // outcomes per batted-ball type: [hit (non-HR) rate, HR rate, 1B, 2B, 3B shares of hits]
   BT: { gb: [0.245, 0, 0.918, 0.078, 0.004], ld: [0.655, 0.025, 0.718, 0.252, 0.030], fb: [0.135, 0.125, 0.44, 0.45, 0.11], pu: [0.02, 0, 1, 0, 0] },
   // global calibration (tools/sim.js): HR odds factor, BABIP logit shift, K and BB logit shifts on the targets
-  HR_ADJ: 1.0, BABIP_ADJ: 0.06, K_ADJ: -0.27, BB_ADJ: 0.05,
+  HR_ADJ: 1.0, BABIP_ADJ: 0.05, K_ADJ: -0.09, BB_ADJ: 0.025,
   // platoon (odds multipliers): same hand / opposite hand
   PLAT: { same: { k: 1.07, bb: 0.92, hr: 0.88, babip: -0.005 }, opp: { k: 0.96, bb: 1.04, hr: 1.06, babip: 0.003 } },
   // level gap (section 11)
@@ -609,7 +609,7 @@ function bipCalib(B, P, T, kn) {
 /* ================================================================ BARS (section 5: health, fatigue, fainting)
    applyBars (after the play) is the only writer; barPenalties (before the next pitch) is the only reader. */
 const BARS = {
-  DMG: { bb: 4, hbp: 4, s1: 6, s2: 10, s3: 12, hr: 16, wp: 2, balk: 2 }, RUN: 9, TAINT: 5, SETTLE: 8, VISIT: 10, STEADY: 3,
+  DMG: { bb: 4, hbp: 4, s1: 6, s2: 10, s3: 12, hr: 16, wp: 2, balk: 2 }, RUN: 8, TAINT: 5, SETTLE: 8, VISIT: 10, STEADY: 3,
   COST_BASE: 88.5, COST_RUNNER: 20, COST_LONG: 40, TANK_K: 1.3, TANK_MIN: 30,
   FAT: { zone: 0.10, whiff: 0.20, hr: 0.40, babip: 0.020, wp: 1.0, velo: 3 },
   HP_TH: 40, HPE: { zone: 0.05, mis: 0.04, wp: 0.5 },
@@ -656,9 +656,9 @@ const POS_ORDER = ['C', 'SS', 'CF', '2B', '3B', 'RF', 'LF', '1B'];
 const POS_GROUP = { C: ['C'], '1B': ['1B', '3B', 'LF', 'RF', 'DH'], '2B': ['2B', 'SS', '3B'], '3B': ['3B', 'SS', '2B', '1B'],
   SS: ['SS', '2B', '3B'], LF: ['LF', 'RF', 'CF', '1B'], CF: ['CF', 'LF', 'RF'], RF: ['RF', 'LF', 'CF', '1B'] };
 const DIFF = {
-  rookie: { label: 'Rookie', edge: 0.14, adapt: 5, hook: { half: 0, mid: 6 }, visits: false, prompts: true },
-  pro: { label: 'Pro', edge: 0.0, adapt: 3, hook: { half: 8, mid: 12 }, visits: true, prompts: false },
-  allstar: { label: 'All-Star', edge: -0.10, adapt: 2, hook: { half: 14, mid: 12 }, visits: true, prompts: false },
+  rookie: { label: 'Rookie', edge: 0.12, smart: 0.30, adapt: 5, hook: { half: 0, mid: 6 }, visits: false, prompts: true },
+  pro: { label: 'Pro', edge: 0.0, smart: 0.70, adapt: 3, hook: { half: 8, mid: 12 }, visits: true, prompts: false },
+  allstar: { label: 'All-Star', edge: -0.08, smart: 1.0, adapt: 2, hook: { half: 14, mid: 12 }, visits: true, prompts: false },
 };
 
 // Build a team for one game. opts: { starter, rested(fn), tired(set), injured(set), lvl(fn id->{level,ev}), lineup, positions }
@@ -678,15 +678,18 @@ function buildTeam(abbr, opts) {
   const inj = opts.injured || new Set();
   // pitchers
   const avail = Pp.filter(id => !inj.has(id));
-  const sps = avail.filter(id => players[id].role === 'SP').sort((a, b) => pitcherValue(players[b]) - pitcherValue(players[a]));
+  // real usage: the rotation is the five starters with the most starts, the bullpen the relievers used most
+  const ln = id => (base(id - off) || {}).line || {};
+  const usage = id => { const l = ln(id), f = (base(id - off) || {}).flag; return (l.gs || 0) * 3 + (l.g || 0) + (l.sv || 0) * 2 + (l.hld || 0) - (f === '2025' ? 15 : 0) + pitcherValue(players[id]) * 4; };
+  const sps = avail.filter(id => players[id].role === 'SP').sort((a, b) => usage(b) - usage(a));
   const rot = sps.slice(0, 5);
   if (rot.length < 5) for (const id of avail.filter(i => !rot.includes(i)).sort((a, b) => players[b].p.budget - players[a].p.budget)) { if (rot.length >= 5) break; rot.push(id); }
   let starter = opts.starter && avail.includes(opts.starter) ? opts.starter : rot[0];
   const tired = opts.tired || new Set();
   const penPool = avail.filter(id => id !== starter && !rot.includes(id));
   const extraSP = rot.filter(id => id !== starter);  // other starters are not in the bullpen
-  penPool.sort((a, b) => pitcherValue(players[b]) - pitcherValue(players[a]));
-  const closer = penPool.find(id => players[id].role === 'CL') || penPool[0];
+  penPool.sort((a, b) => usage(b) - usage(a));
+  const closer = penPool.slice().sort((a, b) => ((ln(b).sv || 0) - (ln(a).sv || 0)) || (pitcherValue(players[b]) - pitcherValue(players[a])))[0];
   let pen = [closer].concat(penPool.filter(id => id !== closer)).filter(Boolean).slice(0, opts.penSize || 6);
   // Season: tired relievers sit; they're kept as last resort
   const fresh = pen.filter(id => !tired.has(id)), tiredPen = pen.filter(id => tired.has(id));
@@ -870,7 +873,7 @@ function startPA(g) {
   const bc = bipCalib(B, P, T, kn);
   const eS = TYPES.swingEdge(B, P);
   g.pa = { bid, pid, T, kn: { W: kn.W, A: kn.A, q: kn.q, pBIP: kn.pBIP }, bc, eS, n: 0, seq: [], depart: null, def: null, off: null, startOuts: g.outs };
-  if (g.tally) { const t = g.tally; t.predK = (t.predK || 0) + kn.pK; t.predBB = (t.predBB || 0) + kn.pBB; t.tgtK = (t.tgtK || 0) + T.K; t.tgtBB = (t.tgtBB || 0) + T.BB; t.paStarts = (t.paStarts || 0) + 1; t.tgtHR = (t.tgtHR || 0) + T.HR; t.tgtBABIP = (t.tgtBABIP || 0) + T.BABIP; }
+  if (g.tally) { const t = g.tally; t.bK = (t.bK || 0) + B.h.k; t.pK = (t.pK || 0) + P.p.k; t.pBB = (t.pBB || 0) + P.p.bb; t.bBB = (t.bBB || 0) + B.h.bb; t.pHR = (t.pHR || 0) + P.p.hr; t.bHR = (t.bHR || 0) + B.h.hr; t.predK = (t.predK || 0) + kn.pK; t.predBB = (t.predBB || 0) + kn.pBB; t.tgtK = (t.tgtK || 0) + T.K; t.tgtBB = (t.tgtBB || 0) + T.BB; t.paStarts = (t.paStarts || 0) + 1; t.tgtHR = (t.tgtHR || 0) + T.HR; t.tgtBABIP = (t.tgtBABIP || 0) + T.BABIP; }
   g.balls = 0; g.strikes = 0;
   const pos = g.teams[batSide(g)].posOf[bid] || 'PH';
   say(g, `Now batting: ${B.name}, ${pos}.`, 'sys', 'batter');
@@ -920,7 +923,9 @@ function resolvePitch(g, def, off) {
   const inZone = R(g) < pr.z;
   const mistake = inZone && R(g) < pr.mis;
   let res;   // 'ball' | 'cstrike' | 'whiff' | 'foul' | 'hbp' | 'bip' | 'bunt'
-  if (app === 'bunt') res = 'bunt';
+  const forced = g.script && g.script.length ? g.script.shift() : null;
+  if (forced) { res = forced.res; g._forced = forced; }
+  else if (app === 'bunt') res = 'bunt';
   else {
     let swingP = inZone ? pr.sz : pr.so;
     if (run === 'hitrun') swingP = inZone ? 0.97 : 0.85;
@@ -1101,7 +1106,8 @@ function resolveBIP(g, ctx, pen, B, P, x, loc, app, inZone, mistake, eP, going) 
   const bs = batSide(g), ft = fieldSide(g), pa = g.pa, bc = pa.bc;
   const A = app.startsWith('sit') ? (app === 'sit' + x.fam ? M.APP.sitRight : M.APP.sitWrong) : (M.APP[app] || M.APP.normal);
   const mix = bc.mix.map((m, i) => m * M.BTL[loc][i] * ((M.BTP[x.code] || [1, 1, 1, 1])[i]) * ((M.BTA[app] || [1, 1, 1, 1])[i]));
-  const t = BTN[wpick(g, [0, 1, 2, 3], mix)];
+  const fo = g._forced; g._forced = null;
+  const t = fo && fo.bt ? fo.bt : BTN[wpick(g, [0, 1, 2, 3], mix)];
   const tq = ctx.typeQ(x);
   const qHR = M.QL[loc][1] + (inZone ? 0 : M.QOUT[1]) + A.hr + (mistake ? M.MIS_HR : 0) + ctx.qHR + tq[1];
   const qH = M.QL[loc][0] + (inZone ? 0 : M.QOUT[0]) + A.h + (mistake ? M.MIS_H : 0) + ctx.qH + tq[0];
@@ -1109,6 +1115,11 @@ function resolveBIP(g, ctx, pen, B, P, x, loc, app, inZone, mistake, eP, going) 
   const pHR = hrBase > 0 ? sig(logit(clamp(hrBase, 1e-4, 0.9)) + qHR) : 0;
   B.b.pa++;
   if (g.tally) g.tally.bip++;
+  if (fo && fo.out) {
+    if (fo.out === 'hr') return homeRun(g, B, P, t, eP);
+    if (fo.out === 's1' || fo.out === 's2' || fo.out === 's3') return hit(g, B, P, t, fo.out, eP, going);
+    return ballInPlayOut(g, B, P, t, going, fo.out);
+  }
   if (R(g) < pHR) return homeRun(g, B, P, t, eP);
   let pH = sig(logit(M.BT[t][0]) + bc.d + qH + (t === 'gb' ? 0.06 * (B.h.sprint - 27) : 0));
   pH = clamp(pH + pen.babip, 0.005, 0.95);
@@ -1170,7 +1181,7 @@ function hit(g, B, P, t, kind, eP, going) {
   pbp(g, `${B.last} ${txt}${rbi ? ` (${rbi} RBI)` : ''}.`);
   P.pt.min3++;
   if (g.walkoff) walkOff(g);
-  comebacker(g, P, t, true);
+  if (kind === 's1') comebacker(g, P, t, true);
   return { paOver: true, dmg: BARS.DMG[kind], kind };
 }
 function spd(g, id) { const h = g.P[id].h; return h ? (h.sprint - 27) : -1; }
@@ -1222,18 +1233,19 @@ function fielderFor(g, t, B) {
 }
 const POS_WORD = { C: 'catcher', '1B': 'first', '2B': 'second', '3B': 'third', SS: 'short', LF: 'left', CF: 'center', RF: 'right', P: 'the pitcher' };
 function fielderAt(g, pos) { const t = g.teams[fieldSide(g)]; return t.lineup.find(id => t.posOf[id] === pos); }
-function ballInPlayOut(g, B, P, t, going) {
-  const pos = fielderFor(g, t, B), fid = fielderAt(g, pos);
+function ballInPlayOut(g, B, P, t, going, force) {
+  const pos = force === 'out1' ? (t === 'gb' ? 'SS' : t === 'pu' ? '2B' : 'CF') : fielderFor(g, t, B), fid = fielderAt(g, pos);
   const fr = fid ? fieldAt(g.P[fid], pos) : 40;
-  const pErr = clamp(0.013 * (1 + (60 - fr) / 100), 0.004, 0.04);
+  const pErr = force ? (force === 'err' ? 1 : 0) : clamp(0.013 * (1 + (60 - fr) / 100), 0.004, 0.04);
   const resp = respPitcher(g, P, 'out');
-  if (R(g) < pErr && t !== 'pu') return reachOnError(g, B, P, resp, t, pos);
+  if ((force === 'err' || R(g) < pErr) && t !== 'pu') return reachOnError(g, B, P, resp, t, pos);
+  if (force === 'out1') going = 'nodp';
   chargeBF(g, resp);
   const b = g.bases, outs0 = g.outs;
   let rbi = 0, txt = '';
   const sc = r => { if (scoreRunner(g, r, { rbi: true })) rbi++; };
   if (t === 'gb') {
-    if (b[0] && outs0 < 2) {
+    if (b[0] && outs0 < 2 && going !== 'nodp') {
       const dpP = clamp(0.47 - 0.04 * spd(g, B.id) - (going ? 0.35 : 0), 0.03, 0.75);
       if (R(g) < dpP) {   // double play
         B.b.ab++; if (g.tally) { g.tally.ab++; g.tally.gidp++; }
@@ -1251,7 +1263,7 @@ function ballInPlayOut(g, B, P, t, going) {
         comebacker(g, P, t, false);
         return { paOver: true, dmg: 0, kind: 'out' };
       }
-      if (R(g) < 0.30) {   // fielder's choice: lead runner forced, batter safe; he takes over that runner's charge (9.16(g))
+      if (going !== 'nodp' && R(g) < 0.30) {   // fielder's choice: lead runner forced, batter safe; he takes over that runner's charge (9.16(g))
         B.b.ab++; if (g.tally) g.tally.ab++;
         const lead = b[1] && b[2] ? 2 : b[1] ? 1 : 0;
         const out = g.bases[lead];
@@ -1270,7 +1282,7 @@ function ballInPlayOut(g, B, P, t, going) {
     B.b.ab++; if (g.tally) g.tally.ab++;
     recordOut(g, P, 1);
     txt = `grounds out to ${POS_WORD[pos]}`;
-    if (g.outs < 3) {
+    if (g.outs < 3 && going !== 'nodp') {
       if (b[2] && outs0 < 2 && R(g) < 0.55) sc(clearRunner(g, 2));
       if (b[1] && !b[2] && R(g) < 0.55 + 0.05 * spd(g, b[1].id) + (going ? 0.3 : 0)) { b[2] = b[1]; b[1] = null; }
       if (b[0] && !b[1]) { b[1] = b[0]; b[0] = null; }
@@ -1283,7 +1295,7 @@ function ballInPlayOut(g, B, P, t, going) {
       const i = b[0] ? 0 : b[1] ? 1 : 2; clearRunner(g, i); recordOut(g, P, 1);
       txt = `lines out to ${POS_WORD[pos]}, and the runner is doubled off`;
     } else txt = t === 'ld' ? `lines out to ${POS_WORD[pos]}` : `flies out to ${POS_WORD[pos]}`;
-    if (g.outs < 3 && deep) {
+    if (g.outs < 3 && deep && going !== 'nodp') {
       if (b[2] && outs0 < 2 && R(g) < 0.75 + 0.05 * spd(g, b[2].id)) {   // sacrifice fly
         sc(clearRunner(g, 2)); B.b.ab--; B.b.sf++; if (g.tally) { g.tally.sf++; }
         txt = `hits a sacrifice fly to ${POS_WORD[pos]}`;
@@ -1698,8 +1710,17 @@ function userFamTendency(g, cat, first) {
   const top = Object.keys(c).sort((a, b) => c[b] - c[a])[0];
   return { fam: top, share: c[top] / h.length, n: h.length };
 }
+function looseCall(g, side) {
+  if (g.user == null || side === g.user) return false;
+  const dif = DIFF[g.difficulty] || DIFF.pro;
+  return R(g) > dif.smart;
+}
 function aiPitch(g, side) {
   const P = g.P[g.teams[side].pitcher], b = g.balls, s = g.strikes;
+  if (looseCall(g, side)) {
+    const pi = wpick(g, P.p.pitches.map((_, i) => i), P.p.pitches.map(x => x.usage));
+    return { pi, loc: LOCS[Math.floor(R(g) * 5)] };
+  }
   let adapt = null;
   // adapt to a user hitter who keeps sitting on one family
   if (g.user != null && batSide(g) === g.user && g.adapt.app[0].length >= 6) {
@@ -1715,6 +1736,7 @@ function aiPitch(g, side) {
 }
 function aiSwing(g, side) {
   const P = g.P[curPitcherId(g)], B = g.P[curBatterId(g)], b = g.balls, s = g.strikes;
+  if (looseCall(g, side)) return { app: ['normal', 'sitFB', 'sitBR', 'sitOS', 'protect', 'big', 'take'][Math.floor(R(g) * 7)], run: null };
   const aw = aiApproachWeights(b, s);
   let sitFam = topFamily(P, b, s, null);
   // adapt to the user's pitching patterns (section 5)
@@ -2066,11 +2088,12 @@ function nextGameOf(S) {
     if (pr.champ) return { opp: S.champ, home: false, level: LEVELS.CHAMP, round: 'champ', label: 'The Champion' };
     if (pr.e4 != null) return { opp: S.elite[pr.e4], home: pr.e4 % 2 === 1, level: LEVELS.ELITE[pr.e4], round: 'e4', label: `Elite Four, match ${pr.e4 + 1} of 4` };
     if (pr.route < LEVELS.ROUTES) {
-      const avg = avgLevel(S), cap = LEVELS.LEADERS[pr.leader] - 2;
+      const vr = pr.leader >= 8;   // Victory Road: route games between the last leader and the Elite Four
+      const avg = avgLevel(S), cap = vr ? LEVELS.ELITE[0] - 2 : LEVELS.LEADERS[pr.leader] - 2;
       const lvl = clamp(Math.round(avg - 1 - (pr.games * 7 + 3) % 3), 1, cap);
       const opts = TEAMS.filter(t => t.abbr !== S.team && !t.custom).map(t => t.abbr);
       const opp = opts[(hashStr(S.team + pr.games) >>> 0) % opts.length];
-      return { opp, home: pr.games % 2 === 0, level: lvl, round: 'route', label: `Route game ${pr.route + 1} of ${LEVELS.ROUTES}` };
+      return { opp, home: pr.games % 2 === 0, level: lvl, round: 'route', label: `${vr ? 'Victory Road' : 'Route'} game ${pr.route + 1} of ${LEVELS.ROUTES}` };
     }
     return { opp: S.leaders[pr.leader], home: true, level: LEVELS.LEADERS[pr.leader], round: 'leader', label: `Division Leader ${pr.leader + 1} of 8` };
   }
@@ -2162,9 +2185,9 @@ function finishGame(S) {
   if (S.mode === 'pennant') {
     res.levelUps = applyPennantXP(S, g, ng);
     const pr = S.pr; pr.games++;
-    if (res.round === 'route') { pr.route++; }
+    if (res.round === 'route') { pr.route++; if (pr.leader >= 8 && pr.route >= LEVELS.ROUTES) pr.e4 = 0; }
     else if (res.round === 'leader') {
-      if (win) { pr.badges.push(S.leaders[pr.leader]); pr.leader++; pr.route = 0; if (pr.leader >= 8) pr.e4 = 0; }
+      if (win) { pr.badges.push(S.leaders[pr.leader]); pr.leader++; pr.route = 0; }
       else pr.retries[pr.leader] = (pr.retries[pr.leader] || 0) + 1;
     } else if (res.round === 'e4') {
       if (win) { pr.e4++; if (pr.e4 >= 4) { pr.e4 = null; pr.champ = true; } }
@@ -2185,7 +2208,7 @@ function applyPennantXP(S, g, ng) {
     const gp = g.P[id]; if (!gp) continue;
     let un = 0;
     if (gp.b && gp.b.pa) un += gp.b.pa * LEVELS.U.pa + gp.b.h * LEVELS.U.hit + gp.b.hr * LEVELS.U.hr + gp.b.rbi * LEVELS.U.rbi;
-    if (gp.pt && gp.pt.bf) un += gp.pt.bf * LEVELS.U.bf + gp.pt.k * LEVELS.U.k + (gp.pt.decision === 'W' ? LEVELS.U.win : 0) + (gp.pt.decision === 'S' ? LEVELS.U.save : 0);
+    if (gp.pt && gp.pt.bf) un += gp.pt.bf * LEVELS.U.bf + gp.pt.k * LEVELS.U.k + LEVELS.U.app + (gp.pt.decision === 'W' ? LEVELS.U.win : 0) + (gp.pt.decision === 'S' ? LEVELS.U.save : 0);
     if (un > 0) { units[id] = un; played.push(id); }
   }
   const avgU = played.length ? sum(played.map(id => units[id])) / played.length : 0;
@@ -2272,7 +2295,7 @@ const FC = {
   barPenalties, hpColor, ftgColor, pfOf, budgetOf, tankOf, canRemove, autoLineup, buildTeam,
   newExhibition, newSeason, newPennant, nextGameOf, startNext, finishGame, strengths, rankedTeams, avgLevel, opponentEVs,
   pack, unpack, projectLine, ipStr, lastName, log5, clamp, newTally, SEASON_GAMES, PO_LABEL,
-  _t: { matchupTargets, solveKnobs, countDP, baseCtx, bbMix, bipCalib, pitchProbs, SOLVE_CACHE, buildCtx, aiPitch, aiSwing, startPA, resolvePitch, faintNow, bringIn, visit, applyBars },
+  _t: { matchupTargets, solveKnobs, countDP, baseCtx, bbMix, bipCalib, pitchProbs, SOLVE_CACHE, buildCtx, aiPitch, aiSwing, startPA, resolvePitch, faintNow, bringIn, visit, applyBars, checkFaint, scoreRunner, endHalf, initPitching, pickReliever, positionPlayerPitcher, tiredNow },
 };
 if (typeof module !== 'undefined') module.exports = FC;
 else root.FC = FC;

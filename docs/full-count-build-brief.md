@@ -137,14 +137,14 @@ It's still baseball. Every pitch and play resolves and is recorded first, by the
 **Health (HP): how hard he's been hit today.** At 0 he's knocked out of the game. It is not a medical bar.
 - 100 for every pitcher, every game. No new rating: better pitchers take less damage because they allow less.
 - Damage, after the play is final: walk or HBP 4, single 6, double 10, triple 12, home run 16, wild pitch or balk 2.
-- Plus 10 for each run that scores while he's on the mound, inherited runners included. A tainted run costs 5: the runner reached on an error or is the extra-inning runner, or he scored on an error or passed ball. Never use official ER here; it can change later in the inning.
+- Plus 8 for each run that scores while he's on the mound (tuned from 10 in calibration), inherited runners included. A tainted run costs 5: the runner reached on an error or is the extra-inning runner, or he scored on an error or passed ball. Never use official ER here; it can change later in the inning.
 - No damage for outs, intentional walks, errors, passed balls or steals. The same scorebook event always costs the same.
 - Restores: +8 when a half-inning ends with no run scored while he pitched ("settled in"), +10 for a mound visit. Never above 100.
-- Rough math at league rates: an average starter ends around 60–70. About 5 runs on 8 hits in 3 innings knocks him out.
+- Rough math at league rates: an average starter ends around 60–70. About 6 runs on 8 hits in 3 innings knocks him out.
 
 **Fatigue (FTG): his pitch budget.** At 0 he's out of gas. This is section 5's pitch budget made visible, and it is the only fatigue system.
 - Budget B: his real pitches per start (SP) or per relief appearance (RP/CL), blended as in section 3, clamped 12–105, set through Stamina. Tank T = max(round(1.3 × B), 30). B 88 gives T 114. B 17 gives T 30.
-- Cost per pitch, kept as integer hundredths: 90, +20 with any runner on base, +40 from his 21st pitch of the inning. Tune the base so the league average is 100 ± 2, so B, T and "used" (hundredths ÷ 100) all read as real pitch counts. Intentional walks cost 0.
+- Cost per pitch, in hundredths: 88.5 (tuned from 90), +20 with any runner on base, +40 from his 21st pitch of the inning. Tune the base so the league average is 100 ± 2, so B, T and "used" (hundredths ÷ 100) all read as real pitch counts. Intentional walks cost 0.
 - Nothing restores it during a game. Dugout time and mound visits don't rest an arm.
 
 **Effects on pitching.** Read once before each pitch, from the bars after the last pitch. They change only the pitcher's inputs, before log5. They never touch a play already made.
@@ -156,7 +156,7 @@ It's still baseball. Every pitch and play resolves and is recorded first, by the
 - After every pitch, in this order: resolve and record the play; count a finished PA toward his 3-batter total; apply the Fatigue cost and Health damage; roll for a comebacker; check for a faint; if the half ended and he's still in, apply the settled-in heal.
 - He leaves at the first legal moment: the end of the current PA or of the half-inning, once the 3-batter minimum is met. Until then the bar holds at 1, he's flagged faintDeferred and he pitches at full penalties ("running on fumes", "hanging on"). No heal cancels it.
 - So the AI never changes pitchers mid at-bat. A faint on the 3rd out means he doesn't come back out. A faint on the final out or a walk-off is logged, with no replacement.
-- Comebacker: only on a grounder or liner whose result is a single or an infield out. Roll on the aux RNG: 0.07% of those balls strike him, and 20% of those are injuries (INJ), whatever his bars. A pitcher struck but not hurt takes no damage. An injury is immediate and exempt from the 3-batter minimum. Never rolled for a position player.
+- Comebacker: only on a grounder or liner whose result is a single or an infield out. Roll on the aux RNG: 0.05% of those balls strike him (tuned from 0.07% to hit 1 injury per 250–500 games), and 20% of those are injuries (INJ), whatever his bars. A pitcher struck but not hurt takes no damage. An injury is immediate and exempt from the 3-batter minimum. Never rolled for a position player.
 
 **Pitching changes follow MLB rules.**
 - The reliever enters with full bars and no warm-up penalty (a simplification). An injured pitcher's replacement may take as many warm-ups as he needs (5.07(b)).
@@ -168,7 +168,7 @@ It's still baseball. Every pitch and play resolves and is recorded first, by the
 - Position player profile: 70 mph lob fastball and 55 mph eephus; K 6%, BB 10%, HR per batter 7%, BABIP .330. Voluntary use only when trailing by 8+, leading by 10+ in the 6th or later, or in extra innings. Using one at any score when out of pitchers is a house rule.
 - Pinch hitters enter only between plate appearances, so 9.15(b) never applies. A starter needs 4.0 IP for the win (house scaling of 9.17(b)'s 5.0, in CONFIG). A fainted pitcher keeps his line and can be the pitcher of record.
 
-**AI manager.** The rules are the same at every difficulty. Only the hooks and the help change. Pro (also used by AUTO and calibration), checked between batters and at the start of each half:
+**AI manager.** The rules are the same at every difficulty. Only the hooks, the help and the AI's sharpness change. Like Pick & Roll's "smart" factor, the opponent's AI makes its best call 30% (Rookie), 70% (Pro) or 100% (All-Star) of the time and a loose one otherwise, plus a small hidden edge on Rookie (+0.12 log-odds for you) and All-Star (−0.08). AI-vs-AI games always play the full policy, so calibration is unaffected. Pro (also used by AUTO and calibration), checked between batters and at the start of each half:
 - Start of a half: replace him if used ≥ B − 8.
 - Mid-inning: replace him if he's past B with a runner in scoring position, or if 12 or fewer pitches are left in the tank.
 - No Health hook: Health 0 is the hook. Visit once when his Health first drops to 30 or below, if a visit is left.
@@ -245,7 +245,8 @@ Also check:
 
 - A/B check: 10,000 games with bar effects off and on, same seeds and hooks. Runs per team per 6 innings within ±0.05; K%, BB% and HR/PA within ±0.3 points. Freeze PF_MEAN and PH_MEAN from the "on" run.
 - Bots: "Never pull" (his starter leaves only by fainting; opponents score 0.10–0.50 more runs per 6 innings than against AI management). "Pull early" (pulls at 0.8B; win rate within ±2 points of the standard bot). "Grinder" (always Take or Protect; wins no more than the sharp bot). The sharp bot still wins 60–65% on Pro.
-- Tune in this order: base rates, the Fatigue base cost, the AI hooks, run damage (10), then the settled-in heal (8).
+- Tune in this order: base rates, the Fatigue base cost, the AI hooks, run damage (now 8), then the settled-in heal (8).
+- Base rates: the pitchers who take the mound (real rotations by games started, bullpens by appearances) are a bit better than the whole league, so four small global offsets in `M` (K, BB, HR, BABIP) bring the simulated league onto the pulled 2026 totals. `node tools/calibrate.js` re-tunes them after a data refresh.
 
 **Types and levels (section 11).** Calibrate with types on, everyone at level 50, IVs as in the data and EVs at 0.
 
@@ -315,12 +316,12 @@ Also check:
 - Screenshots of: title, lineup card, the at-bat screen while pitching, the at-bat screen while batting, pitch menu, swing menu, editor, postgame, a faint, the forced bullpen picker, and the box-score pitching notes.
 - **Pitcher bars, headless** (node, seeded; fixtures are legal base/out scripts with stated starting bars):
   - A faint never changes a play. For 20,000 random (state, seed) pairs with the same pre-pitch bars, the resolved pitch and play are identical with damage constants ×0, ×1 and ×10. Diffing state across applyBars shows only bar, status, pendingChange and log fields changing.
-  - Health: from 100, bases empty, no outs: single, walk, 3-run homer, then three outs leaves 44 (no heal, since runs scored). A scoreless half heals 8, capped at 100. A visit heals 10.
-  - Fatigue: 10 pitches with the bases empty cost 900; with a runner on, 1,100; pitches 21–25 of an inning with the bases empty, 650. A B 88 / T 114 starter empties on pitch 127 with the bases always empty, and on pitch 104 with a runner always on. When used reaches exactly B, pF is 0; one pitch later it's above 0. HP colors change at 40/39 and 21/20.
+  - Health: from 100, bases empty, no outs: single, walk, 3-run homer, then three outs leaves 100 − (6 + 4 + 16 + 3 × 8) = 50 (no heal, since runs scored). Exact bar arithmetic is tested with types off, since a hit's damage carries the type multiplier. A scoreless half heals 8, capped at 100. A visit heals 10.
+  - Fatigue: 10 pitches with the bases empty cost 10 × the base (885); with a runner on, 10 × (base + 20); pitches 21–25 of an inning with the bases empty, 5 × (base + 40). A B 88 / T 114 starter in short innings empties after 11,400 ÷ 88.5 ≈ 129 pitches with the bases always empty. When used reaches exactly B, pF is 0; one pitch later it's above 0. HP colors change at 40/39 and 21/20.
   - A faint forces a change: once the PA ends and the minimum is met, no pitcher stays in with a destroyed bar. A visit doesn't cancel a deferred faint.
-  - 3-batter minimum: a reliever forced in at HP 30 with a runner on 1st gives up a 2-run homer (16 + 10 + 10). He holds at 1 and faints after his 3rd batter whatever happens, or at the end of the half if that comes first. BULLPEN is refused before then. An injury bypasses it.
+  - 3-batter minimum: a reliever forced in at HP 30 with a runner on 1st gives up a 2-run homer (16 + 8 + 8). He holds at 1 and faints after his 3rd batter whatever happens, or at the end of the half if that comes first. BULLPEN is refused before then. An injury bypasses it.
   - Mid at-bat change: the reliever inherits batter, count, runners and outs. At 3-1 a walk is charged to the departed pitcher. At 1-2 a walk, and at any count a strikeout, go to the reliever.
-  - Inherited runners: with runners on 1st and 2nd, the reliever allows a double that scores both. Both runs go to the departed pitcher, and the reliever's Health drops 30 (10 + 20). The fielder's-choice swap is checked. Each pitcher's ER ≤ R, and pitchers' R sum to team R. Don't assert that pitchers' ER sum to team ER.
+  - Inherited runners: with runners on 1st and 2nd, the reliever allows a double that scores both. Both runs go to the departed pitcher, and the reliever's Health drops 26 (10 + 8 + 8). The fielder's-choice swap is checked. Each pitcher's ER ≤ R, and pitchers' R sum to team R. Don't assert that pitchers' ER sum to team ER.
   - A fainted or removed pitcher can't return: the engine throws.
   - Faint on the 3rd out: no mid-inning entry, and the reliever starts the next half. Faint on a walk-off: no replacement.
   - Empty bullpen: with every pitcher removed, a bench player, then the DH, then a fielder pitches and never faints. 1,000 "chaos" games (damage ×5) all finish and every box score adds up. Sim-only safety cap: 25 innings.
@@ -472,7 +473,7 @@ The read game in section 4 is separate. Sitting on the right pitch family is a "
 - **Base stats are the ratings.** Hitters: Contact, Power, Eye, Gap, Speed, Fielding. Pitchers: Stuff, Control, Movement, Stamina. Health stays 100 for every pitcher (section 5).
 - Shown stat (the Pokémon formula, for the status screen): Stat = floor((2 × (rating + 20) + IV + floor(EV ÷ 4)) × level ÷ 100) + 5.
 - **What the engine reads:** effective rating = rating + 3 × (IV − 15.5) ÷ 15.5 + 6 × EV ÷ 252, then mapped to rates exactly like an edited rating (section 8). IVs move a rating by up to ±3 points and EVs by up to +6.
-- **Level gap:** D = batter level − pitcher level, capped at ±25. Shift the batter's whiff by −0.015 × D, hit on ball in play by +0.015 × D, home run by +0.015 × D, and the pitcher's in-zone rate by −0.0075 × D, all in log-odds. Equal levels: no shift.
+- **Level gap:** D = batter level − pitcher level, capped at ±25. Shift the batter's whiff by −0.018 × D, hit on ball in play by +0.018 × D, home run by +0.018 × D, and the pitcher's in-zone rate by −0.009 × D, all in log-odds (tuned from 0.015 to hit the level-gap win rates). Equal levels: no shift.
 
 ### IVs
 
@@ -490,8 +491,8 @@ EVs are what you learn from who you face. 0–252 per stat, 510 total. They're o
 ### XP and leveling (Pennant Run)
 
 - Curve: Medium Fast. Total XP for level L is L³.
-- Gain per event: units × 0.8 × L_opp² × ((2 × L_opp + 10) ÷ (L_opp + L_self + 10))^2.5, rounded, minimum 1. Facing higher levels pays more and lower levels less, as in Pokémon.
-- Units: batters 1 per plate appearance, +0.5 per hit, +1 per home run, +0.5 per RBI. Pitchers 0.8 per batter faced, +0.4 per strikeout, +1 for a win and +1 for a save.
+- Gain per event: units × 1.2 × L_opp² × ((2 × L_opp + 10) ÷ (L_opp + L_self + 10))^2.5, rounded, minimum 1. Facing higher levels pays more and lower levels less, as in Pokémon.
+- Units: batters 1 per plate appearance, +0.5 per hit, +1 per home run, +0.5 per RBI. Pitchers 0.3 per batter faced, +0.15 per strikeout, +1 per appearance, +1 for a win and +1 for a save. (A 6-inning game gives a regular about 3 plate appearances, so these were tuned to keep hitters, starters and relievers leveling at similar speeds.)
 - **Exp Share:** every rostered player who didn't play gets half the average units of the players who did.
 - Target pace: an everyday player gains about 1.2 levels per game against equal-level opponents.
 - Level up after the game: "Judge grew to Lv. 23!" with the stat changes, as in Pokémon. Stats change only between games, never mid-game.
@@ -502,6 +503,7 @@ A Pokémon-style journey through the league. Exhibition and Season stay as they 
 - Pick a team. Every player starts at level 5 with his real ratings, his IVs and 0 EVs.
 - The other 29 teams are the world. Eight **Division Leaders** (gym leaders) at levels 12, 18, 24, 30, 36, 42, 48 and 54. Beat one to earn its pennant (badge). You can retry a loss.
 - Between leaders: 4 **route games** against random teams set 1–3 levels below your lineup's average, capped 2 below the next leader. You can play extra route games to grind XP.
+- **Victory Road:** 4 more route games after the last leader, capped at level 58.
 - Then the playoffs: the **Elite Four** (four of the best remaining teams) at levels 60, 62, 64 and 66, back to back. A loss sends you back to the first one. Then the **Champion**, the best team in the data, at level 70.
 - Opponents: every player at the stage level, with IVs from his hash and EVs of 6 × level (max 510) spread by his profile.
 - The hub shows pennants, your lineup's levels with EXP bars, the next opponent and its level, and a route button.
