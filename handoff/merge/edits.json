@@ -1,0 +1,72 @@
+[
+ {
+  "old_str": "role (SP/RP/CL from games started and saves), batters faced, K%, BB%, HR per batter faced, GB%, BABIP allowed, average pitches per appearance,",
+  "new_str": "role (SP if at least half his games are starts and he averages 60+ pitches per start, so openers count as RP; CL from saves), batters faced, K%, BB%, HR per batter faced, GB%, BABIP allowed, average pitches per start and per relief appearance (Stats API `statSplits` with `sitCodes=sp,rp`, or game logs; fallback: total pitches ÷ appearances),",
+  "why": "The Fatigue budget needs pitches per start and per relief appearance separately. Season totals mix both for swingmen. The tighter SP rule keeps openers from getting starter-sized tanks."
+ },
+ {
+  "old_str": "Stamina (pitches per appearance)",
+  "new_str": "Stamina (pitches per start or per relief appearance; it sets his Fatigue budget, section 5)",
+  "why": "Ties the existing Stamina rating to the Fatigue bar, so no new rating is needed."
+ },
+ {
+  "old_str": "**VISIT** (mound visit: steadies control for a few pitches, 2 per game)",
+  "new_str": "**VISIT** (mound visit: +10 Health and steadies his control, with no Health penalty for 3 pitches; 2 per game, see section 5)",
+  "why": "Defines what a visit does now that Health exists. It stays a command fix, not a fatigue reset."
+ },
+ {
+  "old_str": "- **BENCH:** pinch hitter, pinch runner",
+  "new_str": "- **BENCH:** pinch hitter (between plate appearances), pinch runner",
+  "why": "Pinch hitters only between PAs means the 9.15(b) two-strike rule never comes up after a mid at-bat pitching change."
+ },
+ {
+  "old_str": "from the pitcher's Control, the location, fatigue and the count.",
+  "new_str": "from the pitcher's Control, the location, his Health and Fatigue bars (section 5) and the count.",
+  "why": "Points step 1 at the single pre-pitch read point for bar effects."
+ },
+ {
+  "old_str": "- HP bars: the **pitcher's bar is stamina**, draining by pitch count. The **batter's bar is the count**: three strikes empties it. Show balls and strikes as dots too.",
+  "new_str": "- **HP bars and fainting.** It's still baseball. Every pitch and play resolves by baseball rules first. A hit is a hit, an out is an out, and runs, outs, innings and the win are pure baseball. On top of that, each pitcher has two Pokémon-style bars: **Health** (how hard he's been hit today) and **Fatigue** (his pitch budget). If either bar is destroyed, the pitcher **faints**. He's knocked out of the game, out of gas or hurt, and must be replaced under MLB rules: no re-entry, the reliever inherits the count and runners, inherited runners stay charged to the pitcher who put them on, and the 3-batter minimum applies unless he's hurt. The bars never change a play that already happened. They only change how well he pitches from then on and when he has to leave. Batters don't faint: the **batter's bar is the count**, and three strikes empties it. Show balls and strikes as dots too. Full rules: \"Pitcher health, fatigue and fainting\" in section 5.",
+  "why": "This is the user's gameplay note. It replaces the old single stamina bar with Health plus Fatigue and states plainly that baseball outcomes are untouched."
+ },
+ {
+  "old_str": "- **Fatigue:** each pitcher has a pitch budget from his real pitches per appearance. Past it, velocity, control and stuff fall off. Starters go about 70–90 pitches in a 6-inning game.",
+  "new_str": "- **Fatigue:** each pitcher has a pitch budget from his real pitches per start or relief appearance. It is his Fatigue bar and the only fatigue system (see \"Pitcher health, fatigue and fainting\" below). Past the budget, velocity, control and stuff fall off. Starters average about 76–88 pitches in a 6-inning game.",
+  "why": "One fatigue system, not two. The pitch range now matches the new section 6 target."
+ },
+ {
+  "old_str": "The AI manager pulls tired pitchers, plays lefty-righty matchups, and uses the closer in save spots.",
+  "new_str": "The AI manager pulls tired pitchers (hooks below), plays lefty-righty matchups, and uses the closer in save spots. Every change follows MLB rules (below).",
+  "why": "Points the bullpen line to the hooks and substitution rules in the new subsection."
+ },
+ {
+  "old_str": "- A sharp human-like player (who guesses with real pitch usage) wins about 60–65% on the middle difficulty against an average team.",
+  "new_str": "- A sharp human-like player (who guesses with real pitch usage) wins about 60–65% on the middle difficulty against an average team.\n\n**Pitcher bars (section 5).** Calibrate with the bars and their effects on. They are part of the engine, not an add-on. Use Pro AI on both sides and single games with rested staffs.\n\n| Stat | Target |\n|---|---|\n| Starter pitches | mean 76–88, SD 10–16, 90th percentile ≤ 102 |\n| Starter innings | mean 4.6–5.3 |\n| Relief share of innings | 12–25% |\n| Pitchers per team per game | 2.0–3.0 |\n| Starts under 3.0 IP (not injury) | 4–8% |\n| Starters knocked out (KO) | 6–10% of starts, averaging 2.3–3.7 IP and 5–7 runs |\n| Relievers knocked out (KO) | ≤ 3% of relief appearances |\n| Out of gas (GAS) | ≤ 1% of starts and ≤ 1% of relief appearances |\n| Games with at least one faint (either team) | 12–25% |\n| Injury faints (INJ) | 1 per 250–500 games |\n| AI pitching changes mid at-bat | exactly 0 |\n| Pitches thrown past budget | 1–6% |\n| Pitches with a Health penalty | 3–10% |\n| Runs per PA while a Health penalty is on | ≤ 1.15 × league |\n| AI mound visits | 0.2–0.8 per team per game |\n| Position player pitching | ≤ 1 per 300 team-games, and every game finishes |\n| Fatigue cost per pitch | mean 100 ± 2 hundredths |\n\n- A/B check: 10,000 games with bar effects off and on, same seeds and hooks. Runs per team per 6 innings within ±0.05; K%, BB% and HR/PA within ±0.3 points. Freeze PF_MEAN and PH_MEAN from the \"on\" run.\n- Bots: \"Never pull\" (his starter leaves only by fainting; opponents score 0.10–0.50 more runs per 6 innings than against AI management). \"Pull early\" (pulls at 0.8B; win rate within ±2 points of the standard bot). \"Grinder\" (always Take or Protect; wins no more than the sharp bot). The sharp bot still wins 60–65% on Pro.\n- Tune in this order: base rates, the Fatigue base cost, the AI hooks, run damage (10), then the settled-in heal (8).",
+  "why": "Adds the targets for faint rates, starter workload and visits, plus an effects-off/on check so the bars can't quietly move the section 6 league numbers. 10,000 games per arm is what it takes to resolve ±0.05 runs."
+ },
+ {
+  "old_str": "6. **Season hub** (Season mode): schedule, standings vs. your opponents, next game, roster.",
+  "new_str": "6. **Season hub** (Season mode): schedule, standings vs. your opponents, next game, roster (rotation turn, tired relievers and injured pitchers marked).",
+  "why": "Season availability rules need to be visible on the roster."
+ },
+ {
+  "old_str": "- Pitcher ratings: Control, Movement, Stamina, plus the four pitches.",
+  "new_str": "- Pitcher ratings: Control, Movement, Stamina, plus the four pitches. Stamina moves his budget along the real range of all pitchers (about 12 to 105 pitches) and shows it: \"Stamina 82 · 88 P/GS → budget 88, tank 114\". Health is read-only: \"Health 100 (all pitchers)\".",
+  "why": "The editor shows what Stamina now drives. No new rating is added for Health."
+ },
+ {
+  "old_str": "- Reload mid-at-bat: the count, runners and score are restored.",
+  "new_str": "- Reload mid-at-bat: the count, runners, score and both pitchers' Health and Fatigue bars are restored.",
+  "why": "Reload must restore both bars."
+ },
+ {
+  "old_str": "- Screenshots of: title, lineup card, the at-bat screen while pitching, the at-bat screen while batting, pitch menu, swing menu, editor, postgame.",
+  "new_str": "- Screenshots of: title, lineup card, the at-bat screen while pitching, the at-bat screen while batting, pitch menu, swing menu, editor, postgame, a faint, the forced bullpen picker, and the box-score pitching notes.\n- **Pitcher bars, headless** (node, seeded; fixtures are legal base/out scripts with stated starting bars):\n  - A faint never changes a play. For 20,000 random (state, seed) pairs with the same pre-pitch bars, the resolved pitch and play are identical with damage constants ×0, ×1 and ×10. Diffing state across applyBars shows only bar, status, pendingChange and log fields changing.\n  - Health: from 100, bases empty, no outs: single, walk, 3-run homer, then three outs leaves 44 (no heal, since runs scored). A scoreless half heals 8, capped at 100. A visit heals 10.\n  - Fatigue: 10 pitches with the bases empty cost 900; with a runner on, 1,100; pitches 21–25 of an inning with the bases empty, 650. A B 88 / T 114 starter empties on pitch 127 with the bases always empty, and on pitch 104 with a runner always on. When used reaches exactly B, pF is 0; one pitch later it's above 0. HP colors change at 40/39 and 21/20.\n  - A faint forces a change: once the PA ends and the minimum is met, no pitcher stays in with a destroyed bar. A visit doesn't cancel a deferred faint.\n  - 3-batter minimum: a reliever forced in at HP 30 with a runner on 1st gives up a 2-run homer (16 + 10 + 10). He holds at 1 and faints after his 3rd batter whatever happens, or at the end of the half if that comes first. BULLPEN is refused before then. An injury bypasses it.\n  - Mid at-bat change: the reliever inherits batter, count, runners and outs. At 3-1 a walk is charged to the departed pitcher. At 1-2 a walk, and at any count a strikeout, go to the reliever.\n  - Inherited runners: with runners on 1st and 2nd, the reliever allows a double that scores both. Both runs go to the departed pitcher, and the reliever's Health drops 30 (10 + 20). The fielder's-choice swap is checked. Each pitcher's ER ≤ R, and pitchers' R sum to team R. Don't assert that pitchers' ER sum to team ER.\n  - A fainted or removed pitcher can't return: the engine throws.\n  - Faint on the 3rd out: no mid-inning entry, and the reliever starts the next half. Faint on a walk-off: no replacement.\n  - Empty bullpen: with every pitcher removed, a bench player, then the DH, then a fielder pitches and never faints. 1,000 \"chaos\" games (damage ×5) all finish and every box score adds up. Sim-only safety cap: 25 innings.\n  - Visits: 2 per game, the 6th-inning bonus, +1 per extra inning, one per pitcher per inning.\n  - Comebacker: only on singles and infield outs, rolled on the aux RNG. Turning it off leaves the play-by-play identical up to the first pitcher struck.\n  - Season: rotation rest, tired relievers sit, an injured pitcher misses 3–6 games.\n  - Save and restore at every pitch of a seeded game gives an identical continuation, including mid at-bat after a change.\n- **Pitcher bars, Playwright:**\n  - Bars render with labels, numbers and the budget tick at both widths. A debug hook forcing HP 30, HP 15 and Fatigue past B gives the right color classes.\n  - A forced faint: the result line plays before the faint lines, the picker can't be dismissed, FNT pitchers can't be picked, and the reliever shows the inherited count and runners.\n  - BULLPEN shows its 3-batter reason when disabled.\n  - Reload on the forced picker reopens it. Reload after a mid at-bat change restores the reliever, count, runners, score and both bars.\n  - In the full random game, every pitcher who left has an exit tag or was a voluntary change, and the \"pitched to N batters\" notes match the play-by-play.",
+  "why": "Covers the required tests: a faint forces a change, the reliever inherits the count, a fainted pitcher can't return, a faint never changes a play, and a reload restores both bars. Every fixture is a legal base/out script with exact integer results."
+ },
+ {
+  "old_str": "- The calibration table in section 6 passes, and Claude Code shows you the numbers.",
+  "new_str": "- The calibration tables in section 6 pass, pitcher-bar rows included, and Claude Code shows you the numbers.\n- Pitchers faint, are replaced and are scored under MLB rules as in section 5, and a faint never changes a play.",
+  "why": "Adds the mechanic to the definition of done."
+ }
+]
