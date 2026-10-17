@@ -637,6 +637,28 @@ const TIMING = {
   FLIGHT: { rookie: 2.5, pro: 2.15, allstar: 1.85 },             // real flight time (60.5 ft at the pitch's speed), slowed to play
   SHAPE: { protect: 'chop', big: 'uppercut' },                   // everything else is a level swing
 };
+/* Thrown pitches (an optional UI mode, Pokémon GO style). After the menu call, the user flicks the ball at a
+   target ring, spinning breaking balls first. Accuracy and spin shift the zone rate, mistakes, contact and
+   contact quality in log-odds; an OK throw with some spin is exactly the menu pitch. */
+const THROW = {
+  ACC_GRADES: ['excellent', 'great', 'nice', 'ok', 'off', 'wild'],
+  SPIN_GRADES: ['sharp', 'some', 'hang', 'gas', 'soft'],
+  // z is toward the intended spot (into the zone, or out of it for a chase pitch); c and q are the batter's contact and quality
+  ACC: { excellent: { z: 0.45, mis: -0.06, c: -0.20, q: -0.25 }, great: { z: 0.30, mis: -0.04, c: -0.12, q: -0.15 },
+    nice: { z: 0.15, mis: -0.02, c: -0.05, q: -0.05 }, ok: { z: 0, mis: 0, c: 0, q: 0 },
+    off: { z: -0.25, mis: 0.03, c: 0.05, q: 0.05 }, wild: { z: -0.60, mis: 0.10, c: 0.15, q: 0.20 } },
+  SPIN: { sharp: { c: -0.25, q: -0.20, mis: 0, velo: 0 }, some: { c: 0, q: 0, mis: 0, velo: 0 }, hang: { c: 0.35, q: 0.35, mis: 0.08, velo: 0 },
+    gas: { c: -0.15, q: -0.05, mis: 0, velo: 1.5 }, soft: { c: 0.20, q: 0.10, mis: 0, velo: -3 } },
+  // what each pitch asks of the throw: spin toward the glove or arm side, a hard flick, a soft lob, or no spin
+  NEED: { FF: 'fast', SI: 'arm', FC: 'glove', SL: 'glove', ST: 'glove', CU: 'glove', KC: 'glove', CS: 'glove', SV: 'glove',
+    CH: 'arm', SC: 'arm', FS: 'fast', FO: 'fast', KN: 'none', EP: 'slow' },
+  LIGHT: { SI: true, FC: true },   // small breakers need half the spin
+};
+function throwAdj(ges, loc) {
+  const a = THROW.ACC[ges.acc] || THROW.ACC.ok, sp = THROW.SPIN[ges.spin] || THROW.SPIN.some;
+  const toward = loc === 'chase' ? -1 : 1;
+  return { z: toward * a.z, mis: a.mis + sp.mis, c: a.c + sp.c, q: a.q + sp.q, velo: sp.velo };
+}
 function budgetOf(gp) { return clamp(Math.round(gp.p.budget), 12, 105); }
 function tankOf(B) { return Math.max(Math.round(BARS.TANK_K * B), BARS.TANK_MIN); }
 function initPitching(gp, isPosPlayer) {
@@ -937,17 +959,20 @@ function resolvePitch(g, def, off) {
   const pen = barPenalties(P);
   const ctx = buildCtx(g, B, P, pen, x);
   if (def.zb) ctx.zAdj += def.zb;
+  const ga = def.ges ? throwAdj(def.ges, loc) : null;   // a thrown pitch's accuracy and spin
+  if (ga) { ctx.zAdj += ga.z; ctx.misAdd += ga.mis; ctx.cAdj += ga.c; ctx.qH += ga.q; ctx.qHR += ga.q; }
   const b0 = g.balls, s0 = g.strikes;
   const pr = pitchProbs(ctx, x, loc, app === 'bunt' ? 'take' : app, b0, s0);
   const eP = TYPES.pitchEdge(x, P, B);
   if (g.tally) g.tally.maxTypeShift = Math.max(g.tally.maxTypeShift, Math.abs(ctx.typeC(x)), ...ctx.typeQ(x).map(Math.abs));
-  const velo = Math.round(x.velo - pen.velo);
+  const velo = Math.round(x.velo - pen.velo + (ga ? ga.velo : 0));
   pa.n++;
   P.pt.np++; P.pt.innP++;
   if (g.tally) { g.tally.pitches++; if (pfOf(P.pt) > 0) g.tally.pastBudget++; if (pen.pH > 0) g.tally.hpPen++; }
   const going = run === 'steal2' || run === 'steal3' || run === 'hitrun' || run === 'squeeze' || run === 'steal';
   const locTxt = { attack: 'over the plate', edge: 'on the edge', up: 'up in the zone', low: 'down low', chase: 'off the plate' }[loc];
   say(g, `${P.last} deals a ${velo} mph ${x.name.toLowerCase()} ${locTxt}...`, '', 'pitch', { pitch: x.code, fam: x.fam, velo, loc, user: def.user });
+  if (def.ges) throwLine(g, P, x, def.ges);
   // a timed swing rolled where the pitch crosses before the user swung (preparePitch); otherwise roll it now
   const pre = pa.pre;
   const inZone = pre ? pre.inZone : R(g) < pr.z;
@@ -1841,10 +1866,28 @@ function runUntilUser(g) {
   }
   return g;
 }
-function userPitch(g, pi, loc) {
+// ges (thrown pitches): { acc, spin } from the flick; leave it out for a menu pitch.
+function userPitch(g, pi, loc, ges) {
   if (g.need !== 'pitch' || !g.pa) return false;
-  g.lines = []; g.pa.def = { pi, loc, user: true }; g.need = null;
+  g.lines = []; g.pa.def = { pi, loc, user: true };
+  if (ges) g.pa.def.ges = { acc: THROW.ACC_GRADES.includes(ges.acc) ? ges.acc : 'ok', spin: THROW.SPIN_GRADES.includes(ges.spin) ? ges.spin : 'some' };
+  g.need = null;
   runUntilUser(g); return true;
+}
+// What the UI needs for the flick: the pitch's technique and break, the hands, and the spot.
+function throwInfo(g, pi, loc) {
+  const P = g.P[curPitcherId(g)], B = g.P[g.pa ? g.pa.bid : curBatterId(g)];
+  const x = P.p.pitches[clamp(pi | 0, 0, P.p.pitches.length - 1)];
+  return { code: x.code, name: x.name, fam: x.fam, type: x.type, need: THROW.NEED[x.code] || 'fast', light: !!THROW.LIGHT[x.code], loc: LOCS.includes(loc) ? loc : 'edge',
+    throws: P.throws, bats: B.bats === 'S' ? (P.throws === 'R' ? 'L' : 'R') : B.bats, velo: Math.round(x.velo - barPenalties(P).velo), pitcher: P.last, batter: B.last,
+    seed: (g.seed ^ (g.stamp * 2246822519)) >>> 0 };
+}
+function throwLine(g, P, x, ges) {
+  const a = { excellent: ['Right on the spot!', 'good'], great: ['Good location.', ''], off: ['Missed the spot.', 'sys'], wild: [`${P.last} loses the handle!`, 'hot'] }[ges.acc];
+  if (a) say(g, a[0], a[1], 'throw', { acc: ges.acc });
+  const need = THROW.NEED[x.code];
+  const sp = { sharp: need === 'none' ? ['It dances!', 'good'] : need === 'slow' ? ['A perfect lob.', 'good'] : ['Sharp break!', 'good'], hang: ['It hangs!', 'hot'], gas: ['Pure gas!', 'good'], soft: ['Not much on it.', 'sys'] }[ges.spin];
+  if (sp) say(g, sp[0], sp[1], 'throw', { spin: ges.spin });
 }
 function userSwing(g, app) {
   if (g.need !== 'swing' || !g.pa) return false;
@@ -2427,7 +2470,7 @@ const FC = {
   DATA, LG, TYPES, LEVELS, BARS, M, DIFF, LOCS, LOC_LABEL, APPROACHES, APP_LABEL, FAM_LABEL, HIT_STATS, PIT_STATS, STAT_LABEL, POSN,
   PLAYERS, TEAMS, get PBY() { return PBY; }, get TBY() { return TBY; }, OV, view, base, makeGP, teamPlayers, hitterValue, pitcherValue,
   setOverrides: setOverridesAll, rebuildIndex,
-  TIMING, userSwingPrep, userSwingTimed, timingInfo, timingGrade,
+  TIMING, userSwingPrep, userSwingTimed, timingInfo, timingGrade, THROW, throwInfo, throwAdj,
   newGame, runUntilUser, userPitch, userSwing, userRun, userBullpen, userVisit, userPinch, userPinchRun, userAuto, coachCall, simToEnd,
   runOptions, bullpenState, visitState, benchState, pitchInfo, boxScore, snap, curBatterId, curPitcherId, fieldSide, batSide, isUser,
   barPenalties, hpColor, ftgColor, pfOf, budgetOf, tankOf, canRemove, autoLineup, fullLineup, buildTeam,

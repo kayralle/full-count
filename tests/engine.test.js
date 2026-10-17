@@ -442,3 +442,33 @@ test('auto and sim take over a waiting timed swing', () => {
   FC.simToEnd(g);
   assert.ok(g.over);
 });
+
+/* ------------------------------------------------------------ thrown pitches */
+function userPitching(seed) {
+  const S = FC.newExhibition({ away: 'LAD', home: 'NYY', user: 1, difficulty: 'pro', seed });
+  return FC.startNext(S, {});
+}
+test('thrown pitch: an OK throw with some spin is exactly the menu pitch', () => {
+  const run = ges => { const g = userPitching(4242); const log = []; let c = 0;
+    while (!g.over && c++ < 2000) { if (g.need === 'pitch') FC.userPitch(g, 0, 'edge', ges); else if (g.need === 'swing') FC.userSwing(g, 'normal'); else if (g.need === 'forced') FC.userAuto(g); else break; log.push(...g.lines.map(l => l.t)); }
+    return log; };
+  assert.deepEqual(run({ acc: 'ok', spin: 'some' }), run(null));
+});
+test('thrown pitch: accuracy and spin move the batter\'s results in order, and narrate', () => {
+  const opp = (ges, n) => { let pa = 0, h = 0, hr = 0, k = 0;
+    for (let i = 0; i < n; i++) { const g = userPitching(900 + i); let c = 0;
+      while (!g.over && g.inning <= 3 && c++ < 2000) { if (g.need === 'pitch') FC.userPitch(g, 0, 'edge', ges); else if (g.need === 'swing') FC.userSwing(g, 'normal'); else if (g.need === 'forced') FC.userAuto(g); else break; }
+      for (const b of FC.boxScore(g).teams[0].bat) { pa += b.pa; h += b.h; hr += b.hr; k += b.k; } }
+    return { h: h / pa, hr: hr / pa, k: k / pa }; };
+  const best = opp({ acc: 'excellent', spin: 'sharp' }, 80), mid = opp({ acc: 'ok', spin: 'some' }, 80), worst = opp({ acc: 'wild', spin: 'hang' }, 80);
+  assert.ok(best.h < mid.h && mid.h < worst.h, JSON.stringify({ best, mid, worst }));
+  assert.ok(best.k > mid.k && mid.k > worst.k);
+  const g = userPitching(5);
+  FC.userPitch(g, 0, 'edge', { acc: 'excellent', spin: 'hang' });
+  const t = g.lines.map(l => l.t);
+  assert.ok(t.includes('Right on the spot!') && t.includes('It hangs!'), JSON.stringify(t));
+  // bad grades fall back to neutral; a chase pitch aimed well stays out of the zone
+  const adj = FC.throwAdj({ acc: 'excellent', spin: 'some' }, 'chase');
+  assert.ok(adj.z < 0);
+  assert.ok(FC.throwAdj({ acc: 'wild', spin: 'hang' }, 'attack').z < 0);
+});

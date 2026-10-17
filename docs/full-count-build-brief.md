@@ -534,3 +534,16 @@ After you pick a swing in the menu, the pitch comes in on a catcher's-eye plate 
 - **Effect:** each grade shifts contact, foul, hit quality and HR quality in log-odds, like a type edge. OK is neutral. Perfect +0.70 / −0.30 / +0.35 / +0.40; Good +0.35 / −0.10 / +0.15 / +0.15; Early and Late −0.55 / +0.55 / −0.30 / −0.30 to −0.40; Miss is a whiff.
 - **Saves:** the engine picks the pitch and rolls where it crosses before the swipe, and saves it, so a reload shows the same pitch.
 - **Passive hitters:** a user batter who swings at under 42% of his last 12 pitches gets pounded in the zone, up to +1.8 log-odds on the zone rate for someone who never swings. This applies with or without swiping.
+
+## 13. Thrown pitches (added after the first build)
+
+After you pick a pitch and a location, a view from behind the mound shows a target circle on the spot, with a ring shrinking inside it on a 1.3-second loop, like Pokémon GO. A setting in the Bench menu ("Pitching: Flick / Menus only") turns it off, and "Throw without flicking" pitches straight from the menu. AI pitchers and the headless sims never use it.
+
+- **Spin first:** circle the ball before the flick, the way the pitch breaks. Sliders, sweepers, curves, slurves and cutters spin toward the glove side; changeups, sinkers and screwballs toward the arm side. 1.5 turns is full spin (0.75 for the small breakers: cutter and sinker). Spin makes the ball curve in flight, so you aim off to the side, and a dashed aim marker shows where as your spin builds. Too little spin, or the wrong way, is a hanger.
+- **Each pitch's technique:** four-seamers and splitters want a hard flick ("Gas", or "Soft" if weak). Knuckleballs want no spin at all. An eephus wants a soft lob.
+- **The flick:** the ball leaves along your release direction. A flick that's too soft drops low, one that's too hard sails high.
+- **Accuracy:** inside the ring when you let go is Excellent (ring under 40% of the target), Great (under 70%) or Nice. Inside the target but outside the ring is OK. Up to 2.2 target-widths away is Off target, and beyond that is Wild.
+- **Effect,** in log-odds, with toward-the-spot meaning into the zone, or out of it for a chase pitch:
+  - Accuracy (zone toward the spot / mistakes / batter's contact / contact quality): Excellent +0.45 / −0.06 / −0.20 / −0.25, Great +0.30 / −0.04 / −0.12 / −0.15, Nice +0.15 / −0.02 / −0.05 / −0.05, OK neutral, Off −0.25 / +0.03 / +0.05 / +0.05, Wild −0.60 / +0.10 / +0.15 / +0.20.
+  - Spin (contact / quality / mistakes): sharp break −0.25 / −0.20 / 0, hanger +0.35 / +0.35 / +0.08, gas −0.15 / −0.05 and +1.5 mph, soft +0.20 / +0.10 and −3 mph.
+- **Neutral:** an OK throw with some spin is exactly the menu pitch, which the engine tests check move for move.

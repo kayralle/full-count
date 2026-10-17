@@ -10,7 +10,7 @@ const UI = {
   setup: { mode: 'exhibition', team: 'NYY', opp: 'LAD', home: true, difficulty: 'pro' },
   ed: { q: '', team: '', pos: '', kind: '', sort: 'name', id: null, draft: null, share: '', msg: '', newTeam: null },
 };
-const PREFS = { speed: 'mid', mode: 'auto', sound: true, timing: 'on' };
+const PREFS = { speed: 'mid', mode: 'auto', sound: true, timing: 'on', pitching: 'on' };
 try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); if (p && typeof p === 'object') Object.assign(PREFS, p); } catch (e) { /* storage blocked */ }
 function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify(PREFS)); } catch (e) { /* storage blocked */ } }
 function save() { try { if (S) localStorage.setItem(KEY, FC.pack(S)); } catch (e) { /* storage blocked */ } }
@@ -674,6 +674,7 @@ function renderPanel() {
   DOM.panel.innerHTML = panelHTML(S.game);
   DOM.dlgText = document.getElementById('dlgText'); DOM.dlgSR = document.getElementById('dlgSR'); DOM.adv = document.getElementById('adv');
   if (panelState(S.game) === 'timing') { if (!UI.tm && !UI.sheet) startTiming(FC.timingInfo(S.game)); else bindPad(); }
+  if (UI.th && document.getElementById('mpad')) bindMound();
 }
 function sitStr(g) {
   const u = g.user, d = g.score[u] - g.score[1 - u];
@@ -693,7 +694,7 @@ function panelHTML(g) {
   if (st === 'forced') return forcedHTML(g);
   if (st === 'timing') return timingHTML(g);
   if (st === 'wait') return `<div class="frame"><p class="pr-sub">…</p></div>`;
-  if (st === 'def') { if (UI.menu === 'pitch') return pitchHTML(g); if (UI.menu === 'pen') return penHTML(g, false); return defCmdHTML(g); }
+  if (st === 'def') { if (UI.menu === 'throw' && UI.th) return throwHTML(g); if (UI.menu === 'pitch') return pitchHTML(g); if (UI.menu === 'pen') return penHTML(g, false); return defCmdHTML(g); }
   if (UI.menu === 'swing') return swingHTML(g);
   if (UI.menu === 'run') return runHTML(g);
   if (UI.menu === 'bench') return benchHTML(g);
@@ -740,7 +741,7 @@ function pitchHTML(g) {
     <div class="mgrid">${cards.join('')}</div>
     <div class="minfo">
       <div class="mi-row">${typeChip(inf.type)}${inf.stab ? '<span class="stab">STAB ×1.5</span>' : ''}<span>${esc(fam)}</span><span>Whiff ${Math.round(inf.whiff * 100)}%</span><span>Stuff ${Math.round(inf.stuff)}</span></div>
-      <p class="mi-desc"><b>${esc(vs)}</b> ${esc(LOC_DESC[UI.loc])}</p>
+      <p class="mi-desc"><b>${esc(vs)}</b> ${esc(LOC_DESC[UI.loc])}${PREFS.pitching === 'on' ? ` Then ${esc(NEED_HINT[FC.THROW.NEED[P.p.pitches[UI.sel].code] || 'fast'])}.` : ''}</p>
       <div class="pills" role="group" aria-label="Location">${FC.LOCS.map(l => `<button class="pill" data-a="loc" data-v="${l}" aria-pressed="${UI.loc === l}">${LOC_SHORT[l]}${coach.loc === l && coach.pi === UI.sel ? ' ★' : ''}</button>`).join('')}</div>
     </div>
     <div class="actrow">${backBtn()}${useBtn(`Throw: ${P.p.pitches[UI.sel].name}, ${LOC_SHORT[UI.loc]}`, 'throw')}</div>
@@ -913,6 +914,184 @@ function resolveTiming(res) {
     doUserAction(() => FC.userSwingTimed(g, { swing: res.swing, grade: res.grade, shapeOK: res.shapeOK }));
   }, REDUCED ? 250 : 520);
 }
+/* ---------- Thrown pitch: flick at the target ring, Pokémon GO style, spinning breaking balls first ---------- */
+const NEED_HINT = { glove: 'spin it toward the glove side and flick', arm: 'spin it toward the arm side and flick', fast: 'flick it hard', none: 'flick it with no spin', slow: 'lob it softly' };
+const ACC_TXT = { excellent: 'Excellent!', great: 'Great!', nice: 'Nice!', ok: 'OK', off: 'Off target', wild: 'Wild!' };
+const SPIN_TXT = { sharp: 'Sharp break', some: '', hang: 'Hanger!', gas: 'Gas!', soft: 'Soft' };
+const RING_MS = 1300;
+let TH_RAF = 0;
+function stopThrow() { cancelAnimationFrame(TH_RAF); TH_RAF = 0; UI.th = null; }
+// Required spin: +1 counterclockwise, −1 clockwise, 0 none. Spin the way the pitch breaks (glove side is screen
+// left for a right-hander seen from behind the mound).
+function spinSign(info) { const r = info.throws === 'L' ? -1 : 1; return info.need === 'glove' ? r : info.need === 'arm' ? -r : 0; }
+function throwHTML(g) {
+  const th = UI.th, info = th.info, sg = spinSign(info);
+  const how = info.need === 'glove' || info.need === 'arm' ? `Spin ${sg > 0 ? '↺' : '↻'} then flick` : info.need === 'none' ? 'No spin · flick' : info.need === 'slow' ? 'Soft lob ↑' : 'Flick hard ↑';
+  return `<div class="frame swing-frame throw-frame">
+    <div class="sw-top"><span class="sw-chip">${esc(info.name)}</span><span class="sw-hint">${esc(how)}</span></div>
+    <div class="pad mound" id="mpad" role="application" aria-label="Pitching pad. ${esc(NEED_HINT[info.need])} at the target. The smaller the ring when you let go, the better the pitch.">
+      <svg class="pad-svg" id="mSvg" aria-hidden="true"></svg>
+      <i class="mball" id="mball"><i class="seam"></i></i>
+      <span class="spin-meter" id="spinMeter" ${sg ? '' : 'hidden'}><i id="spinFill"></i></span>
+      <span class="pgrade" id="mgrade" aria-live="assertive"></span><span class="psub" id="msub"></span>
+    </div>
+    <div class="actrow">${backBtn().replace('data-v="cmd"', 'data-v="pitch"')}<button class="mini-b" data-a="quickThrow">Throw without flicking</button></div>
+  </div>`;
+}
+function mGeo() {
+  const pad = document.getElementById('mpad'); if (!pad) return null;
+  const W = pad.clientWidth, H = pad.clientHeight;
+  return { pad, W, H, cx: W / 2, cy: H * 0.27, zw: W * 0.38, zh: H * 0.26, bx: W / 2, by: H * 0.83, br: W * 0.075, rt: W * 0.115 };
+}
+// The target spot for the call, in zone half-widths from behind the mound (+u is screen right, +v up).
+function throwTarget(info) {
+  const away = info.bats === 'L' ? 1 : -1;   // a righty stands on the right, so away from him is screen left
+  const off = info.fam !== 'FB';
+  return { attack: [0, 0], edge: [away * 0.82, -0.35], up: [0, 0.78], low: [0, -0.78], chase: off ? [away * 0.55, -1.35] : [away * 0.2, 1.35] }[info.loc] || [0, 0];
+}
+function breakPx(info, G, q) {
+  const br = BREAK[info.code] || [0, 0], arm = info.throws === 'L' ? -1 : 1;
+  return [arm * br[0] * G.zw / 2 * q, -br[1] * G.zh / 2 * q];
+}
+function spinQ(th) {
+  const sg = spinSign(th.info); if (!sg) return 1;
+  return clamp(th.turns * sg / (th.info.light ? 0.75 : 1.5), 0, 1);
+}
+function startThrow(info) {
+  stopThrow(); stopTiming();
+  UI.th = { info, t0: performance.now(), turns: 0, pts: null, done: false };
+  UI.menu = 'throw'; renderPanel();
+}
+function bindMound() {
+  const G = mGeo(), th = UI.th; if (!G || !th) return;
+  const [tu, tv] = throwTarget(th.info), T = [G.cx + tu * G.zw / 2, G.cy - tv * G.zh / 2];
+  th.geo = { ...G, pad: null, T };
+  const svg = document.getElementById('mSvg'), zx = G.cx - G.zw / 2, zy = G.cy - G.zh / 2;
+  svg.setAttribute('viewBox', `0 0 ${G.W} ${G.H}`);
+  const bat = th.info.bats === 'L' ? G.cx - G.zw * 0.95 : G.cx + G.zw * 0.95;
+  const hr = G.W * 0.03, top = zy - G.zh * 0.45;
+  svg.innerHTML = `<g class="batter"><circle cx="${bat}" cy="${top}" r="${hr}"/><rect x="${bat - hr * 1.3}" y="${top + hr * 1.2}" width="${hr * 2.6}" height="${G.zh * 0.95}" rx="${hr}"/><rect x="${bat - hr * 1.1}" y="${top + hr * 1.2 + G.zh * 0.9}" width="${hr * 0.9}" height="${G.zh * 0.75}" rx="${hr * 0.4}"/><rect x="${bat + hr * 0.2}" y="${top + hr * 1.2 + G.zh * 0.9}" width="${hr * 0.9}" height="${G.zh * 0.75}" rx="${hr * 0.4}"/></g>`
+    + `<rect class="zone" x="${zx}" y="${zy}" width="${G.zw}" height="${G.zh}" rx="3"/>`
+    + `<circle class="target" cx="${T[0]}" cy="${T[1]}" r="${G.rt}"/><circle class="tring" id="tring" cx="${T[0]}" cy="${T[1]}" r="${G.rt}"/>`
+    + `<circle class="ghost" id="ghost" cx="${T[0]}" cy="${T[1]}" r="${G.rt * 0.32}"/>`
+    + `<path class="spin-arrow" id="spinArrow" d=""/><polyline class="trail" id="mtrail" points=""/>`;
+  const ball = document.getElementById('mball');
+  ball.style.width = ball.style.height = (2 * G.br) + 'px';
+  ball.style.transform = `translate(${G.bx - G.br}px,${G.by - G.br}px)`;
+  // the spin guide: an arc around the ball, arrowhead in the direction to spin
+  const sg = spinSign(th.info), R = G.br * 1.7;
+  if (sg) {
+    const a0 = sg > 0 ? -0.2 : Math.PI + 0.2, a1 = sg > 0 ? Math.PI * 1.25 : -Math.PI * 0.25;
+    const P = a => [G.bx + R * Math.cos(a), G.by - R * Math.sin(a)];
+    const [x0, y0] = P(a0), [x1, y1] = P(a1);
+    document.getElementById('spinArrow').setAttribute('d', `M${x0},${y0} A${R},${R} 0 1 ${sg > 0 ? 0 : 1} ${x1},${y1}`);
+  }
+  const pad = G.pad;
+  if (!pad._bound) {
+    pad._bound = true;
+    const at = e => { const b = pad.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top, performance.now()]; };
+    pad.addEventListener('pointerdown', e => {
+      const t = UI.th; if (!t || t.done || !t.geo) return;
+      const p = at(e), g = t.geo;
+      if (Math.hypot(p[0] - g.bx, p[1] - g.by) > g.br * 3.4) return;
+      e.preventDefault(); try { pad.setPointerCapture(e.pointerId); } catch (_) { /* old browser */ }
+      t.pts = [p]; t.lastAng = Math.atan2(-(p[1] - g.by), p[0] - g.bx);
+    });
+    pad.addEventListener('pointermove', e => {
+      const t = UI.th; if (!t || !t.pts || t.done) return;
+      const p = at(e), g = t.geo; t.pts.push(p);
+      const d = Math.hypot(p[0] - g.bx, p[1] - g.by);
+      if (d > g.br * 0.3 && d < g.br * 3.4) {   // circling the ball adds spin; counterclockwise is positive
+        const a = Math.atan2(-(p[1] - g.by), p[0] - g.bx);
+        let da = a - t.lastAng; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI;
+        if (Math.abs(da) < Math.PI / 3) t.turns += da / (2 * Math.PI);   // circling moves in small steps; a jump to the flick doesn't unwind it
+        t.lastAng = a;
+      } else t.lastAng = Math.atan2(-(p[1] - g.by), p[0] - g.bx);
+      drawMTrail();
+    });
+    const end = () => { const t = UI.th; if (!t || !t.pts || t.done) return; const pts = t.pts; t.pts = null; finishFlick(pts); };
+    pad.addEventListener('pointerup', end); pad.addEventListener('pointercancel', end);
+  }
+  if (!TH_RAF) TH_RAF = requestAnimationFrame(thFrame);
+}
+function drawMTrail(cls) { const tr = document.getElementById('mtrail'), t = UI.th; if (!tr || !t) return; tr.setAttribute('points', (t.pts || []).map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ')); if (cls) tr.setAttribute('class', 'trail ' + cls); }
+function ringRatio(th, now) { return 1 - 0.85 * (((now - th.t0) % RING_MS) / RING_MS); }
+function thFrame() {
+  const th = UI.th; TH_RAF = 0; if (!th || !th.geo) return;
+  const g = th.geo, now = performance.now();
+  const ring = document.getElementById('tring'), ghost = document.getElementById('ghost'), ball = document.getElementById('mball'), fill = document.getElementById('spinFill');
+  if (!th.done && ring) {
+    const rr = ringRatio(th, now);
+    ring.setAttribute('r', (g.rt * rr).toFixed(1));
+    ring.setAttribute('class', 'tring ' + (rr < 0.4 ? 'r-ex' : rr < 0.7 ? 'r-gr' : 'r-ni'));
+    // where to aim: the target minus the break the current spin will put on it
+    const b = breakPx(th.info, g, spinQ(th)); th.ghostPt = [g.T[0] - b[0], g.T[1] - b[1]];
+    ghost.setAttribute('cx', th.ghostPt[0].toFixed(1)); ghost.setAttribute('cy', th.ghostPt[1].toFixed(1));
+    ghost.style.opacity = Math.hypot(b[0], b[1]) > 6 ? '1' : '0';
+    if (ball) { ball.firstChild.style.transform = `rotate(${(-th.turns * 360).toFixed(0)}deg)`; ball.classList.toggle('charged', spinQ(th) >= 0.8 && spinSign(th.info) !== 0); }
+    if (fill) fill.style.width = (spinQ(th) * 100).toFixed(0) + '%';
+  }
+  if (!th.done || th.flying) TH_RAF = requestAnimationFrame(thFrame);
+}
+function finishFlick(pts) {
+  const th = UI.th; if (!th || th.done) return;
+  const g = th.geo, last = pts[pts.length - 1];
+  // velocity over the last 90 ms (a pause before the flick doesn't count)
+  let k = pts.length - 1; while (k > 0 && last[2] - pts[k - 1][2] <= 90) k--;
+  if (k === pts.length - 1 && k > 0) k--;
+  const a = pts[k], dt = Math.max(8, last[2] - a[2]);
+  const vx = (last[0] - a[0]) / dt, vy = (last[1] - a[1]) / dt, speed = Math.hypot(vx, vy);
+  const isFlick = vy < -0.5 && last[1] < g.by - g.br * 0.8 && speed > 0.6;
+  if (!isFlick) { drawMTrail(); const tr = document.getElementById('mtrail'); if (tr) tr.setAttribute('points', ''); return; }   // still holding the spin
+  const rr = ringRatio(th, last[2]);
+  // The ball leaves along the release direction and then breaks. The aim is the point on that line nearest the
+  // aim spot (the target less the break your spin puts on it), plus a strength error; the landing adds the break.
+  const q = spinQ(th), sg = spinSign(th.info), b = breakPx(th.info, g, q);
+  const gx = g.T[0] - b[0], gy = g.T[1] - b[1];
+  const ux = vx / speed, uy = vy / speed, along = (gx - last[0]) * ux + (gy - last[1]) * uy;
+  let ax = last[0] + ux * along, ay = last[1] + uy * along;
+  if (speed < 1.0) ay += Math.min(0.8, (1.0 - speed) * 0.5) * g.zh; else if (speed > 3.6) ay -= Math.min(0.8, (speed - 3.6) * 0.12) * g.zh;
+  const land = [ax + b[0], ay + b[1]], d = Math.hypot(land[0] - g.T[0], land[1] - g.T[1]) / g.rt;
+  const acc = d <= rr ? (rr < 0.4 ? 'excellent' : rr < 0.7 ? 'great' : 'nice') : d <= 1 ? 'ok' : d <= 2.2 ? 'off' : 'wild';
+  const need = th.info.need, light = th.info.light ? 0.5 : 1;
+  let spin = 'some';
+  if (sg) spin = th.turns * sg < 0 && Math.abs(th.turns) >= 0.35 * light ? 'hang' : q >= 0.8 ? 'sharp' : q >= 0.35 ? 'some' : 'hang';
+  else if (need === 'fast') spin = speed >= 2.4 ? 'gas' : speed >= 1.2 ? 'some' : 'soft';
+  else if (need === 'slow') spin = speed <= 1.4 ? 'sharp' : 'some';
+  else if (need === 'none') spin = Math.abs(th.turns) < 0.25 ? 'sharp' : 'hang';
+  throwResolve({ acc, spin, land, rr, d, speed, turns: th.turns, from: [last[0], last[1]], brk: b });
+}
+function throwResolve(res) {
+  const th = UI.th; if (!th || th.done) return;
+  th.done = true; th.res = res; th.flying = true;
+  sfx('pitch');
+  const el = document.getElementById('mgrade'), sub = document.getElementById('msub');
+  if (el) { el.textContent = ACC_TXT[res.acc]; el.className = 'pgrade on a-' + res.acc; }
+  if (sub && SPIN_TXT[res.spin]) { sub.textContent = SPIN_TXT[res.spin]; sub.className = 'psub on s-' + res.spin; }
+  const ring = document.getElementById('tring'); if (ring) ring.style.opacity = '0';
+  drawMTrail('a-' + res.acc);
+  // fly the ball out along its curve, shrinking with distance
+  const g = th.geo, ball = document.getElementById('mball'), t0 = performance.now(), dur = REDUCED ? 1 : 430;
+  const from = res.from || [g.bx, g.by], to = res.land || g.T, brk = res.brk || [0, 0];
+  const c = [(from[0] + to[0]) / 2 - brk[0] * 0.9, (from[1] + to[1]) / 2 - brk[1] * 0.9];
+  const fly = () => {
+    if (UI.th !== th || !ball) return;
+    const t = Math.min(1, (performance.now() - t0) / dur), m = 1 - t;
+    const x = m * m * from[0] + 2 * m * t * c[0] + t * t * to[0], y = m * m * from[1] + 2 * m * t * c[1] + t * t * to[1];
+    const r = g.br * (1 - 0.72 * t);
+    ball.style.width = ball.style.height = (2 * r).toFixed(1) + 'px';
+    ball.style.transform = `translate(${(x - r).toFixed(1)}px,${(y - r).toFixed(1)}px)`;
+    ball.style.opacity = t > 0.85 ? String(1 - (t - 0.85) * 5) : '1';
+    if (t < 1) requestAnimationFrame(fly); else th.flying = false;
+  };
+  requestAnimationFrame(fly);
+  const game = S.game, sel = UI.sel, loc = UI.loc;
+  setTimeout(() => {
+    if (UI.th !== th) return;
+    stopThrow(); UI.lastPitchPA = game.pa;
+    doUserAction(() => FC.userPitch(game, sel, loc, { acc: res.acc, spin: res.spin }));
+  }, REDUCED ? 300 : 700);
+}
 const RUN_INFO = { steal2: ['Steal second', 'The runner on first goes. The batter takes.'], steal3: ['Steal third', 'The runner on second goes. Harder than second.'], hitrun: ['Hit-and-run', 'The runner goes and the batter swings to protect him. Fewer double plays, more extra bases.'], bunt: ['Bunt', 'Square around. Usually a sacrifice; a fast runner can beat it out.'], squeeze: ['Squeeze', 'The runner on third breaks for home and the batter bunts. A miss hangs him out.'] };
 function runHTML(g) {
   const opts = FC.runOptions(g);
@@ -932,6 +1111,7 @@ function benchHTML(g) {
       ${runners.map(r => `<li><div class="bag-item static"><span>Pinch run for ${esc(lastName(r.name))} (${['1st', '2nd', '3rd'][r.i]})</span></div></li>${list('pr', `data-base="${r.i}"`)}`).join('')}
       <li><button class="bag-item" data-a="simRest"><span>${UI.confirmSim ? 'Tap again to sim' : 'Sim to final'}</span><span>▶</span></button><p>Your coaches play out the game.</p></li>
       <li><div class="bag-item static"><span>Text speed</span></div>${pills('speed', [['slow', 'Slow'], ['mid', 'Mid'], ['fast', 'Fast']])}</li>
+      <li><div class="bag-item static"><span>Pitching</span></div>${pills('pitching', [['on', 'Flick'], ['off', 'Menus only']])}<p>Flick the ball at the target, spinning breaking balls first. Menus only plays the old way.</p></li>
       <li><div class="bag-item static"><span>Swing timing</span></div>${pills('timing', [['on', 'Swipe'], ['off', 'Menus only']])}<p>Swipe to swing after you pick a swing. Menus only plays the old way.</p></li>
       <li><div class="bag-item static"><span>Advance text</span></div>${pills('mode', [['auto', 'Auto'], ['tap', 'Tap']])}<p>Tap the text box to move on faster either way.</p></li>
     </ul></div>`;
@@ -1191,7 +1371,7 @@ function edInput(t) {
 }
 
 /* ---------- Commands ---------- */
-function resetGameUI() { stopTiming(); UI.V = null; UI.menu = 'cmd'; UI.sel = 0; UI.app = 'normal'; UI.sheet = false; UI.confirmSim = false; UI.coach = null; UI.msg = ''; UI.bpSel = null; }
+function resetGameUI() { stopTiming(); stopThrow(); UI.V = null; UI.menu = 'cmd'; UI.sel = 0; UI.app = 'normal'; UI.sheet = false; UI.confirmSim = false; UI.coach = null; UI.msg = ''; UI.bpSel = null; }
 function coachPeek() {
   const g = S && S.game; if (!g || !g.need) return null;
   const r = g.rng; let c = null;
@@ -1260,6 +1440,7 @@ const A = {
   resetSave() { if (!UI.confirmReset) { UI.confirmReset = true; render(); return; } UI.confirmReset = false; clearSaved(); S = null; UI.screen = 'title'; render(); window.scrollTo(0, 0); },
   menu(d) {
     if (PB.active) return;
+    if (UI.th && d.v !== 'throw') stopThrow();
     if (d.v === 'pen') { const why = FC.bullpenState(S.game, S.game.user).reason; if (why) { UI.msg = why; sfx('back'); renderPanel(); anim(document.getElementById('penWhy'), 'flash', 600); return; } }
     UI.menu = d.v; UI.msg = ''; UI.confirmSim = false;
     if (d.v === 'pitch' || d.v === 'swing') { UI.coach = coachPeek(); if (d.v === 'pitch' && UI.coach && UI.coach.kind === 'pitch' && UI.lastPitchPA !== S.game.pa) { UI.sel = UI.coach.pi; UI.loc = UI.coach.loc; } }
@@ -1267,7 +1448,12 @@ const A = {
   },
   psel(d) { if (PB.active) return; const i = +d.i; if (UI.sel === i) { A.throw(); return; } UI.sel = i; sfx('blip'); renderPanel(); },
   loc(d) { UI.loc = d.v; sfx('blip'); renderPanel(); },
-  throw() { const g = S.game; if (PB.active || g.need !== 'pitch') return; sfx('select'); UI.lastPitchPA = g.pa; doUserAction(() => FC.userPitch(g, UI.sel, UI.loc)); },
+  throw() {
+    const g = S.game; if (PB.active || g.need !== 'pitch') return; sfx('select');
+    if (PREFS.pitching === 'on') { UI.lastPitchPA = g.pa; startThrow(FC.throwInfo(g, UI.sel, UI.loc)); return; }
+    UI.lastPitchPA = g.pa; doUserAction(() => FC.userPitch(g, UI.sel, UI.loc));
+  },
+  quickThrow() { const g = S.game; if (PB.active || g.need !== 'pitch') return; stopThrow(); UI.lastPitchPA = g.pa; doUserAction(() => FC.userPitch(g, UI.sel, UI.loc)); },
   asel(d) { if (PB.active) return; if (UI.app === d.v) { A.swing(); return; } UI.app = d.v; sfx('blip'); renderPanel(); },
   swing() {
     const g = S.game; if (PB.active || g.need !== 'swing') return; sfx('select');
@@ -1391,7 +1577,7 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   const el = e.target;
   if ((e.key === 'Enter' || e.key === ' ') && el && el.getAttribute && el.getAttribute('role') === 'button' && el.dataset.a) { e.preventDefault(); const fn = A[el.dataset.a]; if (fn) fn(el.dataset, el, e); return; }
-  if (e.key === 'Escape') { if (UI.sheet) { A.closeSheet(); return; } if (S && S.phase === 'game' && !PB.active && UI.menu !== 'cmd') { UI.menu = 'cmd'; renderPanel(); } return; }
+  if (e.key === 'Escape') { if (UI.sheet) { A.closeSheet(); return; } if (UI.th && !UI.th.done) { stopThrow(); UI.menu = 'pitch'; renderPanel(); return; } if (S && S.phase === 'game' && !PB.active && UI.menu !== 'cmd') { UI.menu = 'cmd'; renderPanel(); } return; }
   if (UI.tm && UI.tm.phase === 'live' && !UI.tm.done && (e.key === ' ' || e.key === 'Enter') && !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) { e.preventDefault(); swingAt(performance.now(), UI.tm.info.shape); return; }
   if (PB.active && (e.key === 'Enter' || e.key === ' ' || e.key === 'z' || e.key === 'a') && !/^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) { e.preventDefault(); pbTap(); }
 });

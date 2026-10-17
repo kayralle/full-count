@@ -30,14 +30,14 @@ before(async () => {
 });
 after(async () => { if (browser) await browser.close(); server.close(); });
 
-// A fresh context per test: its own localStorage. Fast text, sound off, and menus-only swings unless a test
-// turns swiping on. Console errors are collected; the optional custom-sprite probe (sprites/<name>.png next
+// A fresh context per test: its own localStorage. Fast text, sound off, and menus-only swings and pitches
+// unless a test turns swiping or flicking on. Console errors are collected; the optional custom-sprite probe (sprites/<name>.png next
 // to the file) is allowed to miss.
-async function open(viewport = PHONE, { file = false, timing = false } = {}) {
+async function open(viewport = PHONE, { file = false, timing = false, pitching = false } = {}) {
   const ctx = await browser.newContext({ viewport });
-  await ctx.addInitScript(t => {
-    if (!localStorage.getItem('fullcount-prefs-v1')) localStorage.setItem('fullcount-prefs-v1', JSON.stringify({ speed: 'fast', mode: 'auto', sound: false, timing: t }));
-  }, timing ? 'on' : 'off');
+  await ctx.addInitScript(([t, pt]) => {
+    if (!localStorage.getItem('fullcount-prefs-v1')) localStorage.setItem('fullcount-prefs-v1', JSON.stringify({ speed: 'fast', mode: 'auto', sound: false, timing: t, pitching: pt }));
+  }, [timing ? 'on' : 'off', pitching ? 'on' : 'off']);
   const p = await ctx.newPage();
   p.errors = [];
   p.on('console', m => { if (m.type() === 'error' && !(m.location().url || '').includes('/sprites/')) p.errors.push(m.text()); });
@@ -687,6 +687,84 @@ test('timed swing: a reload mid-pitch shows the same pitch again; Space swings o
   await p.click('#panel [data-v=swing]');
   await p.click('#panel [data-a=swing]');
   assert.equal(await p.$('#pad'), null);
+  assert.equal(await state(p), 'playing');
+  assert.deepEqual(p.errors, []);
+  await p.context().close();
+});
+
+// A Pokémon GO style throw on the mound pad: circle the ball `spin` turns (+ counterclockwise), wait for the
+// ring to reach `rr`, then flick at `aim` ('ghost' = the aim marker, 'wide' = far right of the target).
+function flick(p, { spin = 0, aim = 'ghost', rr = 0.25, speed = 2.6 } = {}) {
+  return p.evaluate(plan => new Promise(res => {
+    const th = __fc.UI.th, g = th.geo, pad = document.getElementById('mpad'), b = pad.getBoundingClientRect();
+    const fire = (type, x, y) => pad.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, clientX: b.left + x, clientY: b.top + y }));
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    (async () => {
+      const R = g.br * 1.5, sg = Math.sign(plan.spin), turns = Math.abs(plan.spin), steps = Math.ceil(turns * 24);
+      fire('pointerdown', g.bx + R, g.by);
+      for (let i = 1; i <= steps; i++) { const a = sg * (i / steps) * turns * 2 * Math.PI; fire('pointermove', g.bx + R * Math.cos(a), g.by - R * Math.sin(a)); await wait(8); }
+      fire('pointermove', g.bx, g.by - g.br * 0.5); await wait(10);
+      const flickMs = 72, period = 1300, phase = (1 - plan.rr) / 0.85 * period;
+      let delay = phase - flickMs - (performance.now() - th.t0) % period; while (delay < 0) delay += period;
+      await wait(delay);
+      const target = plan.aim === 'ghost' ? th.ghostPt : [g.T[0] + g.rt * 6, g.T[1]];
+      const sx = g.bx, sy = g.by - g.br * 0.5, L = Math.hypot(target[0] - sx, target[1] - sy), ux = (target[0] - sx) / L, uy = (target[1] - sy) / L, step = plan.speed * flickMs / 6;
+      for (let i = 1; i <= 6; i++) { await wait(flickMs / 6); fire(i === 6 ? 'pointerup' : 'pointermove', sx + ux * step * i, sy + uy * step * i); }
+      await wait(20);
+      res(th.res ? { acc: th.res.acc, spin: th.res.spin } : null);
+    })();
+  }), { spin, aim, rr, speed });
+}
+async function toMound(p, find) {
+  for (let i = 0; i < 400; i++) {
+    const st = await settle(p);
+    if (st === 'def') break;
+    if (st === 'off') await p.click('#panel [data-a=auto]');
+    else if (st === 'forced') await p.click('#panel [data-a=forcedAuto]');
+  }
+  await p.click('#panel [data-v=pitch]');
+  const idx = await p.evaluate(codes => { const g = __fc.S.game, P = g.P[__fc.FC.curPitcherId(g)]; const i = P.p.pitches.findIndex(x => codes.includes(x.code)); return i; }, find);
+  const i = Math.max(0, idx);
+  if (await p.getAttribute(`#panel [data-a=psel][data-i="${i}"]`, 'aria-pressed') !== 'true') await p.click(`#panel [data-a=psel][data-i="${i}"]`);
+  await p.click('#panel [data-a=loc][data-v=edge]');
+  await p.click('#panel [data-a=throw]');
+  await p.waitForSelector('#mpad');
+  await p.waitForFunction(() => __fc.UI.th && __fc.UI.th.geo && __fc.UI.th.ghostPt);
+  return p.evaluate(() => { const t = __fc.UI.th.info; return { code: t.code, need: t.need, sign: t.need === 'glove' ? (t.throws === 'L' ? -1 : 1) : t.need === 'arm' ? (t.throws === 'L' ? 1 : -1) : 0 }; });
+}
+
+test('thrown pitch: spin the right way and flick at the aim marker when the ring is small for Excellent; no spin hangs it; a wide flick is wild', async () => {
+  const p = await open(PHONE, { pitching: true });
+  await newExhibition(p, { home: true });
+  await playBall(p);
+  const brk = ['SL', 'ST', 'CU', 'KC', 'SV', 'CH', 'FC', 'SI'];
+  let info = await toMound(p, brk);
+  await shot(p, '20-mound');
+  const best = await flick(p, { spin: info.sign * 1.7, aim: 'ghost', rr: 0.22 });
+  assert.equal(best.acc, 'excellent', JSON.stringify({ info, best }));
+  if (info.sign) assert.equal(best.spin, 'sharp');
+  await shot(p, '21-mound-excellent');
+  await p.waitForFunction(() => !__fc.UI.th, null, { timeout: 5000 });
+  const lines = await p.evaluate(() => __fc.S.game.lines.map(l => l.t));
+  assert.ok(lines.includes('Right on the spot!'), JSON.stringify(lines));
+  // a breaking ball with no spin
+  info = await toMound(p, brk);
+  const flat = await flick(p, { spin: 0, aim: 'ghost', rr: 0.55 });
+  if (info.sign) assert.equal(flat.spin, 'hang', JSON.stringify({ info, flat }));
+  assert.equal(flat.acc, 'great');
+  await p.waitForFunction(() => !__fc.UI.th, null, { timeout: 5000 });
+  // way off target
+  await toMound(p, ['FF', 'SI']);
+  const wild = await flick(p, { spin: 0, aim: 'wide', rr: 0.9, speed: 2 });
+  assert.equal(wild.acc, 'wild');
+  await p.waitForFunction(() => !__fc.UI.th, null, { timeout: 5000 });
+  // Back returns to the pitch menu; Throw without flicking pitches from the menu
+  await toMound(p, ['FF']);
+  await p.click('#panel .bbtn');
+  assert.ok(await p.$('#panel [data-a=psel]'), 'back on the pitch menu');
+  await p.click('#panel [data-a=throw]');
+  await p.waitForSelector('#mpad');
+  await p.click('#panel [data-a=quickThrow]');
   assert.equal(await state(p), 'playing');
   assert.deepEqual(p.errors, []);
   await p.context().close();
