@@ -295,6 +295,7 @@ def main():
         "runsPerGame": runs / games,
         "runsPer6": runs / games * 6 / 9,
         "gidp": lg_tot["groundIntoDoublePlay"] / PA,
+        "sbAttPerG": (lg_tot["stolenBases"] + lg_tot["caughtStealing"]) / games,
         "sf": lg_tot["sacFlies"] / PA,
     }
     # Batted-ball mix and wOBA from Savant, weighted by PA.
