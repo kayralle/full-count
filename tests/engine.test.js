@@ -361,3 +361,84 @@ test('editor overrides: Power 99 raises the HR rate and reset restores it', () =
   assert.ok(r1 > r0 * 1.8, `${r0} -> ${r1}`);
   assert.equal(r2, r0);
 });
+
+/* ------------------------------------------------------------ timed swings and passive hitters */
+function userBatting(seed) {
+  const S = FC.newExhibition({ away: 'LAD', home: 'NYY', user: 0, difficulty: 'pro', seed });
+  const g = FC.startNext(S, {});
+  return { S, g };
+}
+function timedRates(grade, discipline, n) {
+  let pa = 0, h = 0, k = 0, hr = 0;
+  for (let i = 0; i < n; i++) {
+    const { g } = userBatting(400 + i);
+    let c = 0;
+    while (!g.over && g.inning <= 2 && c++ < 400) {
+      if (g.need === 'swing') { const info = FC.userSwingPrep(g, 'normal'); FC.userSwingTimed(g, { swing: discipline ? info.inZone : true, grade }); }
+      else if (g.need === 'pitch') FC.userPitch(g, 0, 'edge');
+      else if (g.need === 'forced') FC.userAuto(g);
+      else break;
+    }
+    for (const b of FC.boxScore(g).teams[0].bat) { pa += b.pa; h += b.h; k += b.k; hr += b.hr; }
+  }
+  return { h: h / pa, k: k / pa, hr: hr / pa };
+}
+test('timed swing: prep rolls the pitch once, survives save and restore, and waits for the swipe', () => {
+  const { S, g } = userBatting(91);
+  while (g.need !== 'swing') { if (g.need === 'pitch') FC.userPitch(g, 0, 'edge'); else FC.userAuto(g); }
+  const info = FC.userSwingPrep(g, 'sitFB');
+  assert.equal(g.need, 'timing');
+  assert.ok(info.flight > 600 && info.flight < 1600, 'flight ' + info.flight);
+  assert.equal(info.shape, 'level');
+  assert.equal(FC.userSwingPrep(g, 'normal'), null, 'one prep per pitch');
+  FC.runUntilUser(g);
+  assert.equal(g.need, 'timing', 'the engine waits instead of resolving');
+  const S2 = FC.unpack(FC.pack(S));
+  assert.deepEqual(FC.timingInfo(S2.game), info, 'a reload shows the same pitch');
+  const pid = g.pa.pid, np = g.P[pid].pt.np;
+  assert.ok(FC.userSwingTimed(g, { swing: false }));
+  assert.equal(g.P[pid].pt.np, np + 1, 'exactly one pitch');
+  assert.ok(g.lines.some(l => l.ev === 'pitch'));
+  assert.ok(!g.pa || g.pa.pre == null, 'the next pitch needs a new prep');
+});
+test('timed swing: grades move contact and quality in order; OK is the neutral grade; a miss always whiffs', () => {
+  const perfect = timedRates('perfect', true, 80), ok = timedRates('ok', true, 80), late = timedRates('late', true, 80);
+  assert.ok(perfect.h > ok.h && ok.h > late.h, JSON.stringify({ perfect, ok, late }));
+  assert.ok(perfect.k < ok.k && ok.k < late.k);
+  const { g } = userBatting(7);
+  while (g.need !== 'swing') { if (g.need === 'pitch') FC.userPitch(g, 0, 'edge'); else FC.userAuto(g); }
+  const s0 = g.strikes; FC.userSwingPrep(g, 'normal'); FC.userSwingTimed(g, { swing: true, grade: 'miss' });
+  assert.ok(g.lines.some(l => l.ev === 'whiff' || l.ev === 'k'), 'a missed swipe is a whiff');
+  assert.ok(g.strikes === s0 + 1 || g.strikes === 0);
+  // grading: bands scale with the window, a wrong shape costs a grade
+  assert.equal(FC.timingGrade(30, 1, true), 'perfect');
+  assert.equal(FC.timingGrade(-120, 1, true), 'ok');
+  assert.equal(FC.timingGrade(-200, 1, true), 'early');
+  assert.equal(FC.timingGrade(200, 1, true), 'late');
+  assert.equal(FC.timingGrade(400, 1, true), 'miss');
+  assert.equal(FC.timingGrade(30, 1, false), 'good');
+  assert.equal(FC.timingGrade(60, 1.4, true), 'perfect');
+});
+test('a hitter who never swings gets pounded in the zone instead of walking half the time', () => {
+  let pa = 0, bb = 0, k = 0;
+  for (let i = 0; i < 80; i++) {
+    const { g } = userBatting(600 + i);
+    let c = 0;
+    while (!g.over && g.inning <= 2 && c++ < 400) {
+      if (g.need === 'swing') FC.userSwing(g, 'take');
+      else if (g.need === 'pitch') FC.userPitch(g, 0, 'edge');
+      else if (g.need === 'forced') FC.userAuto(g);
+      else break;
+    }
+    for (const b of FC.boxScore(g).teams[0].bat) { pa += b.pa; bb += b.bb; k += b.k; }
+  }
+  assert.ok(bb / pa < FC.LG.obp, `BB ${(bb / pa).toFixed(3)} should sit below a league OBP`);
+  assert.ok(k / pa > 0.6, `K ${(k / pa).toFixed(3)}`);
+});
+test('auto and sim take over a waiting timed swing', () => {
+  const { g } = userBatting(13);
+  while (g.need !== 'swing') { if (g.need === 'pitch') FC.userPitch(g, 0, 'edge'); else FC.userAuto(g); }
+  FC.userSwingPrep(g, 'normal');
+  FC.simToEnd(g);
+  assert.ok(g.over);
+});

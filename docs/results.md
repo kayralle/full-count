@@ -84,10 +84,24 @@ Bullpen bots on Pro, mirror team (`node tools/checks.js bots`, 900 games each; t
 | EVs to 510, everyday hitter | game 48 | 35–60 |
 | Pennant Run, sharp bot | Champion in 69 games; at most 3 retries for any leader | 45–70 games, ≤3 retries each |
 
+## Timed swings
+
+Swiping only touches the user's batter, so the tables above are unchanged; the 3,000-game run gives identical numbers before and after. What the grades do, over 150 games in which the user bats in the first two innings, swinging at every strike and taking every ball:
+
+| Timing on every swing | Hits per PA | Strikeouts per PA |
+|---|---|---|
+| Perfect | .334 | 4.4% |
+| OK (neutral) | .244 | 7.5% |
+| Late | .157 | 13.7% |
+
+Taking every ball and swinging at every strike is a ceiling no thumb reaches, because edge pitches cross near the border and chase pitches break off the plate late.
+
+**A fix that came with it.** In the menu game, choosing Take on every pitch walked you 47% of the time, because the AI pitcher never adjusted. Now a hitter who swings at under 42% of his last 12 pitches gets pounded in the zone: always taking walks 24% of the time but strikes out 75% with no hits, an on-base mark of .243 against the league's .318.
+
 ## Tests
 
-- **Engine** (`node --test tests/engine.test.js`): 27 of 27 pass. They cover the section 9 headless list: the type chart in all 324 cells, centered edges, exact Health and Fatigue arithmetic, faints and the 3-batter minimum, mid at-bat changes and the 9.16(h) walk rule, inherited runners, no re-entry, faints on the third out and on a walk-off, empty bullpens and 1,000 chaos games, visits, comebackers on the aux RNG, "a faint never changes a play" (damage ×0, ×1, ×10), extra innings and walk-offs, save and restore at every pitch, Season rest and injuries, Pennant Run stages, and editor overrides.
-- **Browser** (`npm run test:ui`): 12 of 12 pass, at 390×844 and at 1280×860. A full random game through the menus (opened from the file itself) with a box-score audit: runs equal the line score and the batting lines, hits match, pitchers' runs add up, every pitcher who left has an exit tag or was a voluntary change, and each "pitched to N batters" note matches the play-by-play. Reloads mid at-bat, on the forced picker and after a mid at-bat change restore the count, runners, score and both pitchers' bars. Also: a forced faint (the result plays first, the picker can't be dismissed, FNT pitchers can't be picked), Bullpen's 3-batter reason, extra innings and a walk-off, the bar color classes, the editor (Power 99 over 50 games and reset, a custom player through a game and export/import, types and level through reload and export/import, team batting orders and rotations), "Super effective" pitch cards, the Chart tab and the Pennant Run level-up screen. Screenshots are in [`screenshots/`](screenshots/).
+- **Engine** (`node --test tests/engine.test.js`): 31 of 31 pass. They cover the section 9 headless list: the type chart in all 324 cells, centered edges, exact Health and Fatigue arithmetic, faints and the 3-batter minimum, mid at-bat changes and the 9.16(h) walk rule, inherited runners, no re-entry, faints on the third out and on a walk-off, empty bullpens and 1,000 chaos games, visits, comebackers on the aux RNG, "a faint never changes a play" (damage ×0, ×1, ×10), extra innings and walk-offs, save and restore at every pitch, Season rest and injuries, Pennant Run stages, editor overrides, timed swings (the pitch is rolled once and survives a reload, grades move contact and quality in order, a missed swipe whiffs) and the passive-hitter adjustment.
+- **Browser** (`npm run test:ui`): 14 of 14 pass, at 390×844 and at 1280×860. A full random game through the menus (opened from the file itself) with a box-score audit: runs equal the line score and the batting lines, hits match, pitchers' runs add up, every pitcher who left has an exit tag or was a voluntary change, and each "pitched to N batters" note matches the play-by-play. Reloads mid at-bat, on the forced picker and after a mid at-bat change restore the count, runners, score and both pitchers' bars. Also: a forced faint (the result plays first, the picker can't be dismissed, FNT pitchers can't be picked), Bullpen's 3-batter reason, extra innings and a walk-off, the bar color classes, the editor (Power 99 over 50 games and reset, a custom player through a game and export/import, types and level through reload and export/import, team batting orders and rotations), "Super effective" pitch cards, the Chart tab, the Pennant Run level-up screen, and timed swings (swipes on time and late grade Perfect and Late, holding off takes the pitch, a reload mid-pitch shows the same pitch, Space swings on desktop, Menus only skips the pad). Screenshots are in [`screenshots/`](screenshots/).
 
 ## Bugs the tests found
 

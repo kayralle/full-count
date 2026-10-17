@@ -620,6 +620,23 @@ const BARS = {
   WIN_IP_OUTS: 12,                            // starter needs 4.0 IP for the win (house scaling of 5.0)
   force: null,                                // test hook: { pid, hp, used }
 };
+/* Timed swings (an optional UI mode). The user's batter watches the pitch come in, then swipes the shape of his
+   swing or holds to take. The grade shifts contact, foul, hit and HR quality in log-odds like a type edge; OK is
+   neutral, so an average swipe plays like the menu game. AI batters and the sims never use it. */
+const TIMING = {
+  GRADES: ['perfect', 'good', 'ok', 'early', 'late', 'miss'],
+  perfect: { c: 0.70, f: -0.30, h: 0.35, hr: 0.40 },
+  good: { c: 0.35, f: -0.10, h: 0.15, hr: 0.15 },
+  ok: { c: 0, f: 0, h: 0, hr: 0 },
+  early: { c: -0.55, f: 0.55, h: -0.30, hr: -0.30 },
+  late: { c: -0.55, f: 0.55, h: -0.30, hr: -0.40 },
+  miss: null,                                                    // a whiff
+  BANDS: { perfect: 45, good: 100, ok: 165, near: 260 },        // ms either side of the ball reaching the plate
+  WIN: { rookie: 1.4, pro: 1.0, allstar: 0.75 },                 // timing window by difficulty
+  READ: { right: 1.35, wrong: 0.75, protect: 1.25, big: 0.85 },  // a good read widens it, a wrong guess narrows it
+  FLIGHT: { rookie: 2.5, pro: 2.15, allstar: 1.85 },             // real flight time (60.5 ft at the pitch's speed), slowed to play
+  SHAPE: { protect: 'chop', big: 'uppercut' },                   // everything else is a level swing
+};
 function budgetOf(gp) { return clamp(Math.round(gp.p.budget), 12, 105); }
 function tankOf(B) { return Math.max(Math.round(BARS.TANK_K * B), BARS.TANK_MIN); }
 function initPitching(gp, isPosPlayer) {
@@ -759,7 +776,7 @@ function newGame(opts) {
     hitsT: [0, 0], errT: [0, 0], lobT: [0, 0], bases: [null, null, null], teams: [A.team, H.team], P,
     user: opts.user == null ? null : opts.user, difficulty: opts.difficulty || 'pro', need: null, pa: null,
     auto: { side: null, inning: 0 }, lines: [], pbp: [], notes: [], over: false, winner: null, pending: null,
-    adapt: { hist: [[], []], sit: [null, null], first: [[], []], app: [[], []] }, half_: null, safetyCap: opts.safetyCap || 0,
+    adapt: { hist: [[], []], sit: [null, null], first: [[], []], app: [[], []], sw: [] }, half_: null, safetyCap: opts.safetyCap || 0,
     tally: opts.tally ? newTally() : null, stamp: 0, lastPitch: null, coach: opts.coach || null,
   };
   if (g.user != null) g.teams[g.user].user = true;
@@ -919,6 +936,7 @@ function resolvePitch(g, def, off) {
   if (run === 'hitrun' && app === 'take') app = 'protect';
   const pen = barPenalties(P);
   const ctx = buildCtx(g, B, P, pen, x);
+  if (def.zb) ctx.zAdj += def.zb;
   const b0 = g.balls, s0 = g.strikes;
   const pr = pitchProbs(ctx, x, loc, app === 'bunt' ? 'take' : app, b0, s0);
   const eP = TYPES.pitchEdge(x, P, B);
@@ -930,8 +948,13 @@ function resolvePitch(g, def, off) {
   const going = run === 'steal2' || run === 'steal3' || run === 'hitrun' || run === 'squeeze' || run === 'steal';
   const locTxt = { attack: 'over the plate', edge: 'on the edge', up: 'up in the zone', low: 'down low', chase: 'off the plate' }[loc];
   say(g, `${P.last} deals a ${velo} mph ${x.name.toLowerCase()} ${locTxt}...`, '', 'pitch', { pitch: x.code, fam: x.fam, velo, loc, user: def.user });
-  const inZone = R(g) < pr.z;
-  const mistake = inZone && R(g) < pr.mis;
+  // a timed swing rolled where the pitch crosses before the user swung (preparePitch); otherwise roll it now
+  const pre = pa.pre;
+  const inZone = pre ? pre.inZone : R(g) < pr.z;
+  const mistake = pre ? pre.mistake : inZone && R(g) < pr.mis;
+  const tm = off.timed ? off.timing : null;
+  g._tq = null;
+  if (tm) timingLine(g, B, tm);
   let res;   // 'ball' | 'cstrike' | 'whiff' | 'foul' | 'hbp' | 'bip' | 'bunt'
   const forced = g.script && g.script.length ? g.script.shift() : null;
   if (forced) { res = forced.res; g._forced = forced; }
@@ -939,14 +962,19 @@ function resolvePitch(g, def, off) {
   else {
     let swingP = inZone ? pr.sz : pr.so;
     if (run === 'hitrun') swingP = inZone ? 0.97 : 0.85;
-    const swung = R(g) < swingP;
+    const swung = tm ? tm.swing : R(g) < swingP;
     if (!swung) {
       if (inZone) res = R(g) < (mistake ? 0.99 : pr.csz) ? 'cstrike' : 'ball';
       else res = R(g) < ctx.q ? 'hbp' : (R(g) < pr.cso ? 'cstrike' : 'ball');
     } else {
-      const c = inZone ? (mistake ? pr.cInM : pr.cInN) : pr.cOut;
+      let c = inZone ? (mistake ? pr.cInM : pr.cInN) : pr.cOut, fP = inZone ? pr.fIn : pr.fOut;
+      if (tm) {
+        const T = TIMING[tm.grade];
+        if (!T) c = 0;
+        else { c = sig(logit(clamp(c, 1e-4, 1 - 1e-4)) + T.c); fP = sig(logit(clamp(fP, 1e-4, 1 - 1e-4)) + T.f); g._tq = T; }
+      }
       if (R(g) >= c) res = 'whiff';
-      else res = R(g) < (inZone ? pr.fIn : pr.fOut) ? 'foul' : 'bip';
+      else res = R(g) < fP ? 'foul' : 'bip';
     }
   }
   if (res !== 'ball' && res !== 'hbp') P.pt.st++;
@@ -956,7 +984,7 @@ function resolvePitch(g, def, off) {
   let paOver = false, dmg = 0, kind = null;
   g._runDmg = 0;
   // adapt: remember what the user throws and how the user swings (the AI adapts, section 5)
-  trackAdapt(g, def, off, x);
+  trackAdapt(g, def, off, x, res);
   if (res === 'bunt') {
     ({ paOver, dmg, kind } = resolveBunt(g, B, P, x, run));
   } else if (res === 'bip') {
@@ -1008,20 +1036,29 @@ function resolvePitch(g, def, off) {
   if (P.pt.steady > 0) P.pt.steady--;
   if (paOver && !g.over) afterPA(g);
   else if (!paOver && !g.over) {
-    pa.def = null; pa.off = null;
+    pa.def = null; pa.off = null; pa.pre = null;
     // a third out on the bases (caught stealing, squeeze rundown): this batter leads off next inning
     if (g.outs >= 3) { g.pa = null; g.balls = 0; g.strikes = 0; endHalf(g); }
   }
   g.stamp++;
 }
 function anyOn(g) { return g.bases.some(Boolean); }
-function trackAdapt(g, def, off, x) {
+function trackAdapt(g, def, off, x, res) {
   if (g.user == null) return;
   const cat = countCat(g.balls, g.strikes);
   if (def.user) {
     const h = g.adapt.hist[0]; h.push({ cat, fam: x.fam, first: g.balls === 0 && g.strikes === 0 }); if (h.length > 40) h.shift();
   }
   if (off.user && off.app) { const a = g.adapt.app[0]; a.push(off.app); if (a.length > 30) a.shift(); }
+  if (off.user && res) { const sw = g.adapt.sw || (g.adapt.sw = []); sw.push(!(res === 'ball' || res === 'cstrike' || res === 'hbp')); if (sw.length > 12) sw.shift(); }
+}
+// A user hitter who keeps taking gets strikes: below a 42% swing rate the AI pitcher pounds the zone, up to
+// +1.8 log-odds on the zone rate for someone who never swings (MLB hitters swing at about 47% of pitches).
+function passiveBoost(g) {
+  const sw = g.adapt.sw || [];
+  if (sw.length < 6) return 0;
+  const rate = sw.filter(Boolean).length / sw.length;
+  return clamp((0.42 - rate) / 0.42, 0, 1) * 1.8;
 }
 function afterPA(g) {
   const bt = g.teams[batSide(g)], P = g.P[g.pa.pid];
@@ -1119,8 +1156,9 @@ function resolveBIP(g, ctx, pen, B, P, x, loc, app, inZone, mistake, eP, going) 
   const fo = g._forced; g._forced = null;
   const t = fo && fo.bt ? fo.bt : BTN[wpick(g, [0, 1, 2, 3], mix)];
   const tq = ctx.typeQ(x);
-  const qHR = M.QL[loc][1] + (inZone ? 0 : M.QOUT[1]) + A.hr + (mistake ? M.MIS_HR : 0) + ctx.qHR + tq[1];
-  const qH = M.QL[loc][0] + (inZone ? 0 : M.QOUT[0]) + A.h + (mistake ? M.MIS_H : 0) + ctx.qH + tq[0];
+  const tg = g._tq || TIMING.ok; g._tq = null;   // a timed swing's grade
+  const qHR = M.QL[loc][1] + (inZone ? 0 : M.QOUT[1]) + A.hr + (mistake ? M.MIS_HR : 0) + ctx.qHR + tq[1] + tg.hr;
+  const qH = M.QL[loc][0] + (inZone ? 0 : M.QOUT[0]) + A.h + (mistake ? M.MIS_H : 0) + ctx.qH + tq[0] + tg.h;
   const hrBase = clamp(M.BT[t][1] * bc.kHR * pen.hrMul, 0, 0.9);
   const pHR = hrBase > 0 ? sig(logit(clamp(hrBase, 1e-4, 0.9)) + qHR) : 0;
   B.b.pa++;
@@ -1743,7 +1781,8 @@ function aiPitch(g, side) {
   const pi = wpick(g, P.p.pitches.map((_, i) => i), w);
   const x = P.p.pitches[pi];
   const loc = wpick(g, LOCS, aiLocWeights(x.fam, b, s));
-  return { pi, loc };
+  const zb = g.user != null && batSide(g) === g.user ? passiveBoost(g) : 0;
+  return zb ? { pi, loc, zb } : { pi, loc };
 }
 function aiSwing(g, side) {
   const P = g.P[curPitcherId(g)], B = g.P[curBatterId(g)], b = g.balls, s = g.strikes;
@@ -1792,6 +1831,7 @@ function runUntilUser(g) {
   while (!g.over && guard++ < 5000) {
     if (g.pending) { if (isUser(g, g.pending.side)) { g.need = 'forced'; break; } const sd = g.pending.side; g.pending = null; requestChange(g, sd, true); continue; }
     if (!g.pa) { startPA(g); if (g.pending || g.over) continue; }
+    if (g.pa.off && g.pa.off.timed && !g.pa.off.timing) { g.need = 'timing'; break; }
     const fs = fieldSide(g), bs = batSide(g);
     if (!g.pa.def && isUser(g, fs)) { g.need = 'pitch'; break; }
     if (!g.pa.off && isUser(g, bs)) { g.need = 'swing'; break; }
@@ -1811,6 +1851,56 @@ function userSwing(g, app) {
   if (!APPROACHES.includes(app)) app = 'normal';
   g.lines = []; g.pa.off = { app, user: true }; g.need = null;
   runUntilUser(g); return true;
+}
+// Timed swing, step 1: the user picked a swing. The AI picks the pitch and where it crosses; the UI animates that.
+function userSwingPrep(g, app) {
+  if (g.need !== 'swing' || !g.pa || g.pa.off || !APPROACHES.includes(app) || app === 'take') return null;
+  if (!g.pa.def) g.pa.def = aiPitch(g, fieldSide(g));
+  g.pa.off = { app, user: true, timed: true };
+  const P = g.P[g.pa.pid], B = g.P[g.pa.bid];
+  const x = P.p.pitches[clamp(g.pa.def.pi | 0, 0, P.p.pitches.length - 1)];
+  const loc = LOCS.includes(g.pa.def.loc) ? g.pa.def.loc : 'edge';
+  const ctx = buildCtx(g, B, P, barPenalties(P), x);
+  if (g.pa.def.zb) ctx.zAdj += g.pa.def.zb;
+  const pr = pitchProbs(ctx, x, loc, app, g.balls, g.strikes);
+  const inZone = R(g) < pr.z;
+  g.pa.pre = { inZone, mistake: inZone && R(g) < pr.mis, seed: (g.seed ^ (g.stamp * 2654435761)) >>> 0 };
+  g.need = 'timing';
+  return timingInfo(g);
+}
+// What the UI needs to animate the pitch and grade the swipe.
+function timingInfo(g) {
+  const pa = g.pa; if (!pa || !pa.pre || !pa.off || !pa.off.timed) return null;
+  const P = g.P[pa.pid], B = g.P[pa.bid], x = P.p.pitches[clamp(pa.def.pi | 0, 0, P.p.pitches.length - 1)];
+  const app = pa.off.app, velo = Math.round(x.velo - barPenalties(P).velo), dif = g.difficulty in TIMING.WIN ? g.difficulty : 'pro';
+  const read = app.startsWith('sit') ? (app === 'sit' + x.fam ? TIMING.READ.right : TIMING.READ.wrong) : (TIMING.READ[app] || 1);
+  return { app, shape: TIMING.SHAPE[app] || 'level', code: x.code, fam: x.fam, type: x.type, velo, loc: pa.def.loc,
+    inZone: pa.pre.inZone, mistake: pa.pre.mistake, seed: pa.pre.seed, throws: P.throws, bats: B.bats === 'S' ? (P.throws === 'R' ? 'L' : 'R') : B.bats,
+    flight: Math.round(TIMING.FLIGHT[dif] * 60.5 / (velo * 1.46667) * 1000), win: TIMING.WIN[dif] * read, bands: TIMING.BANDS, pitcher: P.last, batter: B.last };
+}
+// Grade a swipe: timing error in ms (negative is early) and whether the shape matched the plan.
+function timingGrade(err, win, shapeOK) {
+  const b = TIMING.BANDS, a = Math.abs(err);
+  let g = a <= b.perfect * win ? 'perfect' : a <= b.good * win ? 'good' : a <= b.ok * win ? 'ok' : a <= b.near * win ? (err < 0 ? 'early' : 'late') : 'miss';
+  if (!shapeOK) g = { perfect: 'good', good: 'ok', ok: err < 0 ? 'early' : 'late', early: 'miss', late: 'miss', miss: 'miss' }[g];
+  return g;
+}
+// Timed swing, step 2: { swing, grade, shapeOK }. No swing is a take.
+function userSwingTimed(g, t) {
+  if (g.need !== 'timing' || !g.pa || !g.pa.pre || !g.pa.off || !g.pa.off.timed) return false;
+  t = t || {};
+  g.lines = [];
+  g.pa.off.timing = { swing: !!t.swing, grade: TIMING.GRADES.includes(t.grade) ? t.grade : 'ok', shapeOK: t.shapeOK !== false };
+  g.need = null;
+  runUntilUser(g); return true;
+}
+// Auto and sim hand a waiting timed swing back to the coach's swing model (the pitch stays as rolled).
+function untime(g) { if (g.need === 'timing' && g.pa && g.pa.off) { delete g.pa.off.timed; g.need = null; } }
+function timingLine(g, B, tm) {
+  if (!tm.swing) return;
+  const t = { perfect: `Perfect timing by ${B.last}!`, good: 'Good timing.', early: `${B.last} is out in front.`, late: `${B.last} is late on it.` }[tm.grade];
+  if (!tm.shapeOK) say(g, 'Wrong swing for the plan.', 'sys', 'timing', { grade: tm.grade });
+  if (t) say(g, t, tm.grade === 'perfect' ? 'good' : tm.grade === 'good' ? '' : 'sys', 'timing', { grade: tm.grade });
 }
 function runOptions(g) {
   const b = g.bases, o = [];
@@ -1905,6 +1995,7 @@ function userPinchRun(g, base, id) {
 }
 function userAuto(g) {
   if (g.user == null) return false;
+  untime(g);
   g.lines = [];
   g.auto = { side: g.user, inning: g.inning + g.half / 2 };
   say(g, 'The coach takes over for the rest of the inning.', 'sys', 'auto');
@@ -1919,6 +2010,7 @@ function coachCall(g) {
 }
 function simToEnd(g) {
   let n = 0;
+  untime(g);
   while (!g.over && n++ < 3000) {
     const c = coachCall(g);
     if (!c) { runUntilUser(g); continue; }
@@ -2335,6 +2427,7 @@ const FC = {
   DATA, LG, TYPES, LEVELS, BARS, M, DIFF, LOCS, LOC_LABEL, APPROACHES, APP_LABEL, FAM_LABEL, HIT_STATS, PIT_STATS, STAT_LABEL, POSN,
   PLAYERS, TEAMS, get PBY() { return PBY; }, get TBY() { return TBY; }, OV, view, base, makeGP, teamPlayers, hitterValue, pitcherValue,
   setOverrides: setOverridesAll, rebuildIndex,
+  TIMING, userSwingPrep, userSwingTimed, timingInfo, timingGrade,
   newGame, runUntilUser, userPitch, userSwing, userRun, userBullpen, userVisit, userPinch, userPinchRun, userAuto, coachCall, simToEnd,
   runOptions, bullpenState, visitState, benchState, pitchInfo, boxScore, snap, curBatterId, curPitcherId, fieldSide, batSide, isUser,
   barPenalties, hpColor, ftgColor, pfOf, budgetOf, tankOf, canRemove, autoLineup, fullLineup, buildTeam,

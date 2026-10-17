@@ -30,13 +30,14 @@ before(async () => {
 });
 after(async () => { if (browser) await browser.close(); server.close(); });
 
-// A fresh context per test: its own localStorage. Fast text, sound off. Console errors are collected;
-// the optional custom-sprite probe (sprites/<name>.png next to the file) is allowed to miss.
-async function open(viewport = PHONE, { file = false } = {}) {
+// A fresh context per test: its own localStorage. Fast text, sound off, and menus-only swings unless a test
+// turns swiping on. Console errors are collected; the optional custom-sprite probe (sprites/<name>.png next
+// to the file) is allowed to miss.
+async function open(viewport = PHONE, { file = false, timing = false } = {}) {
   const ctx = await browser.newContext({ viewport });
-  await ctx.addInitScript(() => {
-    if (!localStorage.getItem('fullcount-prefs-v1')) localStorage.setItem('fullcount-prefs-v1', JSON.stringify({ speed: 'fast', mode: 'auto', sound: false }));
-  });
+  await ctx.addInitScript(t => {
+    if (!localStorage.getItem('fullcount-prefs-v1')) localStorage.setItem('fullcount-prefs-v1', JSON.stringify({ speed: 'fast', mode: 'auto', sound: false, timing: t }));
+  }, timing ? 'on' : 'off');
   const p = await ctx.newPage();
   p.errors = [];
   p.on('console', m => { if (m.type() === 'error' && !(m.location().url || '').includes('/sprites/')) p.errors.push(m.text()); });
@@ -58,6 +59,7 @@ async function state(p) {
     if (q('[data-a=swing]')) return 'swing';
     if (q('[data-v=pitch]')) return 'def';
     if (q('[data-v=swing]')) return 'off';
+    if (q('#pad')) return 'timing';
     if (q('.bag-list')) return 'list';
     return 'other';
   });
@@ -587,6 +589,105 @@ test('editor rosters: a team\'s batting order and rotation are saved and used by
   await p.click('[data-a=rsReset]');
   assert.deepEqual(await p.evaluate(() => __fc.UI.ed.roster.lineup), d0.lineup);
   assert.equal(await p.evaluate(() => __fc.FC.OV.teams.NYY), undefined);
+  assert.deepEqual(p.errors, []);
+  await p.context().close();
+});
+
+// Swipe across the pad so the stroke's midpoint lands `offset` ms from the ball reaching the plate.
+// Synthetic pointer events on exact timers; the real handlers grade them.
+function swipeAt(p, offset) {
+  return p.evaluate(offset => new Promise(res => {
+    const tm = __fc.UI.tm, pad = document.getElementById('pad'), b = pad.getBoundingClientRect();
+    const shape = tm.info.shape, dx = shape === 'chop' ? 40 : 160, dy = shape === 'uppercut' ? -70 : shape === 'chop' ? 60 : 0;
+    const dur = 120, t0 = tm.arr + offset - dur / 2;
+    const fire = (type, f) => pad.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, clientX: b.left + b.width * 0.25 + dx * f, clientY: b.top + b.height * 0.55 + dy * f }));
+    const wait = t => new Promise(r => setTimeout(r, Math.max(0, t - performance.now())));
+    (async () => {
+      await wait(t0); fire('pointerdown', 0);
+      for (let i = 1; i <= 6; i++) { await wait(t0 + dur * i / 6); fire(i === 6 ? 'pointerup' : 'pointermove', i / 6); }
+      await new Promise(r => setTimeout(r, 20));
+      res(__fc.UI.tm && __fc.UI.tm.res);
+    })();
+  }), offset);
+}
+async function toOwnAtBat(p) {
+  for (let i = 0; i < 400; i++) {
+    const st = await settle(p);
+    if (st === 'off') return;
+    if (st === 'def') await p.click('#panel [data-a=auto]');
+    else if (st === 'forced') await p.click('#panel [data-a=forcedAuto]');
+    else if (st === 'timing') await p.waitForFunction(() => !__fc.UI.tm, null, { timeout: 5000 });
+  }
+  throw new Error('never came up to bat');
+}
+async function pickSwing(p) {
+  await p.click('#panel [data-v=swing]');
+  if (await p.getAttribute('#panel [data-a=asel][data-v=normal]', 'aria-pressed') !== 'true') await p.click('#panel [data-a=asel][data-v=normal]');
+  await p.click('#panel [data-a=swing]');
+  await p.waitForSelector('#pad');
+  await p.waitForFunction(() => __fc.UI.tm && __fc.UI.tm.phase === 'live');
+}
+
+test('timed swing: the pitch comes in, a swipe on time grades Perfect, a late one Late, and holding off takes it', async () => {
+  const p = await open(PHONE, { timing: true });
+  await newExhibition(p, { home: false });
+  await playBall(p);
+  await toOwnAtBat(p);
+  await pickSwing(p);
+  await p.waitForFunction(() => performance.now() > __fc.UI.tm.t0 + __fc.UI.tm.info.flight * 0.6);
+  await shot(p, '18-swing-pad');
+  const perfect = await swipeAt(p, 0);
+  assert.equal(perfect.grade, 'perfect', JSON.stringify(perfect));
+  assert.ok(perfect.shapeOK);
+  await shot(p, '19-swing-perfect');
+  await p.waitForFunction(() => !__fc.UI.tm, null, { timeout: 5000 });
+  const lines = await p.evaluate(() => __fc.S.game.lines.map(l => l.t));
+  assert.ok(lines.some(t => /Perfect timing/.test(t)), JSON.stringify(lines));
+  assert.ok(lines.some(t => / deals a \d+ mph /.test(t)), 'the pitch is narrated after the swing');
+  // a late swing
+  await toOwnAtBat(p); await pickSwing(p);
+  const late = await swipeAt(p, 210);
+  assert.equal(late.grade, 'late', JSON.stringify(late));
+  await p.waitForFunction(() => !__fc.UI.tm, null, { timeout: 5000 });
+  // hold: the pitch is taken and counted
+  await toOwnAtBat(p); await pickSwing(p);
+  const before = await p.evaluate(() => { const g = __fc.S.game; return { pid: g.pa.pid, np: g.P[g.pa.pid].pt.np }; });
+  await p.waitForFunction(() => !__fc.UI.tm || __fc.UI.tm.done, null, { timeout: 5000 });
+  assert.deepEqual(await p.evaluate(() => __fc.UI.tm && __fc.UI.tm.res), { swing: false });
+  await p.waitForFunction(() => !__fc.UI.tm, null, { timeout: 5000 });
+  const evs = await p.evaluate(() => __fc.S.game.lines.map(l => l.ev));
+  assert.ok(evs.includes('pitch') && (evs.includes('ball') || evs.includes('strike') || evs.includes('bb') || evs.includes('k') || evs.includes('hbp')), JSON.stringify(evs));
+  assert.equal(await p.evaluate(pid => __fc.S.game.P[pid].pt.np, before.pid), before.np + 1);
+  assert.deepEqual(p.errors, []);
+  await p.context().close();
+});
+
+test('timed swing: a reload mid-pitch shows the same pitch again; Space swings on desktop; Menus only skips the pad', async () => {
+  const p = await open(DESKTOP, { timing: true });
+  await newExhibition(p, { home: false });
+  await playBall(p);
+  await toOwnAtBat(p);
+  await pickSwing(p);
+  const info = await p.evaluate(() => __fc.FC.timingInfo(__fc.S.game));
+  await p.reload();
+  await p.waitForSelector('#pad');
+  await p.waitForFunction(() => __fc.UI.tm && __fc.UI.tm.phase === 'live');
+  assert.deepEqual(await p.evaluate(() => __fc.FC.timingInfo(__fc.S.game)), info, 'no rerolling the pitch');
+  // Space at the plate
+  await p.evaluate(() => new Promise(r => setTimeout(r, Math.max(0, __fc.UI.tm.arr - performance.now()))));
+  await p.keyboard.press('Space');
+  const res = await p.evaluate(() => __fc.UI.tm && __fc.UI.tm.res);
+  assert.ok(res && res.swing && ['perfect', 'good', 'ok'].includes(res.grade), JSON.stringify(res));
+  await p.waitForFunction(() => !__fc.UI.tm, null, { timeout: 5000 });
+  // switch to menus only from the bench
+  await toOwnAtBat(p);
+  await p.click('#panel [data-v=bench]');
+  await p.click('#panel [data-a=pref][data-k=timing][data-v=off]');
+  await p.click('#panel [data-a=menu][data-v=cmd]');
+  await p.click('#panel [data-v=swing]');
+  await p.click('#panel [data-a=swing]');
+  assert.equal(await p.$('#pad'), null);
+  assert.equal(await state(p), 'playing');
   assert.deepEqual(p.errors, []);
   await p.context().close();
 });

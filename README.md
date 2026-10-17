@@ -13,6 +13,7 @@ A Pokémon-style baseball game for the browser. Every plate appearance is a batt
 
 - **Modes:** Exhibition (any two teams), Season (12 games and a four-round playoff) and Pennant Run (start at level 5, beat 8 Division Leaders, the Elite Four and the Champion).
 - **The at-bat:** pick one of the pitcher's real pitches and a location, or a swing approach (sit on a pitch family, protect, swing big, take). Steal, hit-and-run, bunt and squeeze.
+- **Timed swings:** after you pick a swing, the pitch comes in on a plate view and you swipe the swing's shape (level, uppercut or chop) as it reaches the plate, or hold off to take. Perfect timing hits harder; early or late fouls off or misses. Space bar works on desktop, and the Bench menu has a menus-only setting.
 - **Pitcher bars:** Health drops with hits, walks and runs; Fatigue drops with every pitch. A pitcher faints when either empties, and MLB substitution rules take over (the 3-batter minimum, inherited runners and counts, no re-entry).
 - **Types and levels:** 18 types on the real Pokémon chart with baseball names, STAB, levels, IVs and EVs. In Pennant Run your players level up as they face stronger teams.
 - **Player editor:** every player's ratings, pitches, types, level, IVs and EVs; custom players and teams; batting orders and rotations; export and import as JSON.

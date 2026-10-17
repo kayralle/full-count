@@ -10,7 +10,7 @@ const UI = {
   setup: { mode: 'exhibition', team: 'NYY', opp: 'LAD', home: true, difficulty: 'pro' },
   ed: { q: '', team: '', pos: '', kind: '', sort: 'name', id: null, draft: null, share: '', msg: '', newTeam: null },
 };
-const PREFS = { speed: 'mid', mode: 'auto', sound: true };
+const PREFS = { speed: 'mid', mode: 'auto', sound: true, timing: 'on' };
 try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); if (p && typeof p === 'object') Object.assign(PREFS, p); } catch (e) { /* storage blocked */ }
 function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify(PREFS)); } catch (e) { /* storage blocked */ } }
 function save() { try { if (S) localStorage.setItem(KEY, FC.pack(S)); } catch (e) { /* storage blocked */ } }
@@ -664,6 +664,7 @@ function panelState(g) {
   if (PB.active) return 'playing';
   if (g.over) return 'over';
   if (g.need === 'forced') return 'forced';
+  if (g.need === 'timing') return 'timing';
   if (g.need === 'pitch') return 'def';
   if (g.need === 'swing') return 'off';
   return 'wait';
@@ -672,6 +673,7 @@ function renderPanel() {
   if (!DOM.panel || !S || !S.game) return;
   DOM.panel.innerHTML = panelHTML(S.game);
   DOM.dlgText = document.getElementById('dlgText'); DOM.dlgSR = document.getElementById('dlgSR'); DOM.adv = document.getElementById('adv');
+  if (panelState(S.game) === 'timing') { if (!UI.tm && !UI.sheet) startTiming(FC.timingInfo(S.game)); else bindPad(); }
 }
 function sitStr(g) {
   const u = g.user, d = g.score[u] - g.score[1 - u];
@@ -689,6 +691,7 @@ function panelHTML(g) {
     return `<div class="frame"><div class="prompt"><p class="pr-big">${g.winner == null ? 'It ends in a tie.' : w ? `${esc(g.teams[u].short)} win!` : `${esc(g.teams[1 - u].short)} win.`}</p><p class="pr-sub">Final: ${esc(g.teams[0].short)} ${g.score[0]}, ${esc(g.teams[1].short)} ${g.score[1]}${g.inning > g.innings ? ` in ${g.inning}` : ''}.</p></div>${useBtn('Continue', 'toPost')}</div>`;
   }
   if (st === 'forced') return forcedHTML(g);
+  if (st === 'timing') return timingHTML(g);
   if (st === 'wait') return `<div class="frame"><p class="pr-sub">…</p></div>`;
   if (st === 'def') { if (UI.menu === 'pitch') return pitchHTML(g); if (UI.menu === 'pen') return penHTML(g, false); return defCmdHTML(g); }
   if (UI.menu === 'swing') return swingHTML(g);
@@ -761,8 +764,154 @@ function swingHTML(g) {
     return `<button class="mv" data-a="asel" data-v="${k}" aria-pressed="${UI.app === k}">${coach.app === k ? '<span class="coach">COACH</span>' : ''}<span class="mvn">${esc(FC.APP_LABEL[k])}</span><span class="mvr"><span>${esc(sub)}</span></span></button>`;
   };
   return `<div class="frame moves"><div class="mgrid">${FC.APPROACHES.map(card).join('')}<div class="mv empty">${g.balls}-${g.strikes}</div></div>
-    <div class="minfo"><p class="mi-desc"><b>${esc(FC.APP_LABEL[UI.app])}.</b> ${esc(APP_DESC[UI.app])}</p></div>
+    <div class="minfo"><p class="mi-desc"><b>${esc(FC.APP_LABEL[UI.app])}.</b> ${esc(APP_DESC[UI.app])}${PREFS.timing === 'on' && UI.app !== 'take' ? ` Then swipe ${SHAPE_HINT[FC.TIMING.SHAPE[UI.app] || 'level']} as the pitch reaches the plate.` : ''}</p></div>
     <div class="actrow">${backBtn()}${useBtn(UI.app === 'take' ? 'Take the pitch' : `Swing: ${FC.APP_LABEL[UI.app]}`, 'swing')}</div></div>`;
+}
+/* ---------- Timed swing: the pitch comes in on a plate view and you swipe the shape of your swing ---------- */
+const SHAPE_HINT = { level: 'level (↔)', uppercut: 'up and across (↗)', chop: 'short and down (↘)' };
+const SHAPE_LABEL = { level: 'Level swing ↔', uppercut: 'Uppercut ↗', chop: 'Short chop ↘' };
+const GRADE_TXT = { perfect: 'Perfect!', good: 'Good', ok: 'OK', early: 'Early', late: 'Late', miss: 'Miss', take: 'Take' };
+// Late movement by pitch, in strike-zone half-widths: x toward the pitcher's arm side (+) or glove side (−), y up (+).
+const BREAK = { FF: [0, 0.18], SI: [0.5, -0.35], FC: [-0.28, -0.08], SL: [-0.6, -0.35], ST: [-0.95, -0.12], CU: [-0.3, -0.95], KC: [-0.3, -0.9],
+  CS: [-0.35, -0.85], SV: [-0.55, -0.65], CH: [0.42, -0.55], FS: [0.15, -0.8], FO: [0.1, -0.9], SC: [0.55, -0.45], KN: [0, -0.2], EP: [0, -1.2] };
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+// Where the pitch crosses, in zone half-widths (|u|, |v| <= 1 is a strike). Edge pitches sit near the border
+// on both sides of it, and chase pitches start like strikes and break off the plate late.
+function crossing(info) {
+  const r = mulberry(info.seed), rr = (a, b) => a + (b - a) * r(), sg = () => (r() < 0.5 ? -1 : 1);
+  const arm = info.throws === 'L' ? 1 : -1, br = BREAK[info.code] || [0, 0], down = br[1] < -0.5;
+  if (info.mistake) return [rr(-0.3, 0.3), rr(-0.3, 0.3)];
+  const L = info.loc;
+  if (info.inZone) {
+    if (L === 'attack') return [rr(-0.55, 0.55), rr(-0.55, 0.55)];
+    if (L === 'up') return [rr(-0.7, 0.7), rr(0.55, 0.95)];
+    if (L === 'low') return [rr(-0.7, 0.7), rr(-0.95, -0.55)];
+    if (L === 'chase') return [arm * Math.sign(br[0] || -1) * rr(0.7, 0.95), rr(-0.8, 0.2)];
+    return r() < 0.5 ? [sg() * rr(0.78, 0.97), rr(-0.8, 0.8)] : [rr(-0.8, 0.8), sg() * rr(0.78, 0.97)];
+  }
+  if (L === 'up') return [rr(-0.8, 0.8), rr(1.1, 1.5)];
+  if (L === 'low') return [rr(-0.8, 0.8), rr(-1.6, -1.1)];
+  if (L === 'chase') return down ? [rr(-0.6, 0.6), rr(-1.7, -1.15)] : [arm * Math.sign(br[0] || -1) * rr(1.2, 1.7), rr(-0.9, 0.4)];
+  if (L === 'attack') return r() < 0.5 ? [sg() * rr(1.04, 1.18), rr(-0.7, 0.7)] : [rr(-0.7, 0.7), sg() * rr(1.04, 1.18)];
+  return r() < 0.5 ? [sg() * rr(1.03, 1.25), rr(-0.8, 0.8)] : [rr(-0.8, 0.8), sg() * rr(1.03, 1.25)];
+}
+function timingHTML(g) {
+  const tm = UI.tm, info = tm && tm.info;
+  const shape = info ? info.shape : 'level';
+  return `<div class="frame swing-frame">
+    <div class="sw-top"><span class="sw-chip">${esc(SHAPE_LABEL[shape])}</span><span class="sw-hint" id="swHint">${tm && tm.phase === 'live' ? 'Swipe as it crosses. Hold to take.' : `${esc(info ? info.pitcher : '')} is set…`}</span></div>
+    <div class="pad" id="pad" role="application" aria-label="Swing pad. Swipe ${esc(SHAPE_HINT[shape])} as the pitch reaches the plate, or press Space. Don't swipe to take the pitch.">
+      <svg class="pad-svg" id="padSvg" aria-hidden="true"></svg>
+      <i class="pring" id="pring"></i><i class="pball" id="pball"></i>
+      <span class="pgrade" id="pgrade" aria-live="assertive"></span>
+    </div>
+    <p class="sw-foot">${esc(FC.APP_LABEL[info ? info.app : 'normal'])} · ${g.balls}-${g.strikes} count</p>
+  </div>`;
+}
+let TM_RAF = 0, TM_TO = 0;
+function stopTiming() { cancelAnimationFrame(TM_RAF); clearTimeout(TM_TO); TM_RAF = 0; TM_TO = 0; UI.tm = null; }
+function startTiming(info) {
+  stopTiming(); if (!info) return;
+  UI.tm = { info, phase: 'set', t0: 0, arr: 0, pts: null, done: false };
+  renderPanel();
+  TM_TO = setTimeout(() => {
+    const tm = UI.tm; if (!tm || tm.info !== info) return;
+    tm.phase = 'live'; tm.t0 = performance.now(); tm.arr = tm.t0 + info.flight;
+    const hint = document.getElementById('swHint'); if (hint) hint.textContent = 'Swipe as it crosses. Hold to take.';
+    sfx('pitch'); anim(DOM.sprO, 'lunge-opp', 460);
+    TM_RAF = requestAnimationFrame(tmFrame);
+  }, REDUCED ? 500 : 850);
+}
+// Pad geometry from its current size.
+function padGeo() {
+  const pad = document.getElementById('pad'); if (!pad) return null;
+  const W = pad.clientWidth, H = pad.clientHeight;
+  return { pad, W, H, cx: W / 2, cy: H * 0.5, zw: W * 0.34, zh: H * 0.42 };
+}
+function bindPad() {
+  const G = padGeo(), tm = UI.tm; if (!G || !tm) return;
+  const svg = document.getElementById('padSvg');
+  const zx = G.cx - G.zw / 2, zy = G.cy - G.zh / 2, py = G.H * 0.9, pw = G.zw * 0.62;
+  svg.setAttribute('viewBox', `0 0 ${G.W} ${G.H}`);
+  svg.innerHTML = `<rect class="zone" x="${zx}" y="${zy}" width="${G.zw}" height="${G.zh}" rx="3"/>`
+    + [1, 2].map(k => `<line class="zone-g" x1="${zx + G.zw * k / 3}" y1="${zy}" x2="${zx + G.zw * k / 3}" y2="${zy + G.zh}"/><line class="zone-g" x1="${zx}" y1="${zy + G.zh * k / 3}" x2="${zx + G.zw}" y2="${zy + G.zh * k / 3}"/>`).join('')
+    + `<polygon class="plate" points="${G.cx - pw / 2},${py - 8} ${G.cx + pw / 2},${py - 8} ${G.cx + pw / 2},${py} ${G.cx},${py + 9} ${G.cx - pw / 2},${py}"/><polyline class="trail" id="trail" points=""/>`;
+  const pad = G.pad;
+  if (pad._bound) return; pad._bound = true;
+  pad.addEventListener('pointerdown', e => { const t = UI.tm; if (!t || t.done || t.phase !== 'live') return; e.preventDefault(); try { pad.setPointerCapture(e.pointerId); } catch (_) { /* old browser */ } const b = pad.getBoundingClientRect(); t.pts = [[e.clientX - b.left, e.clientY - b.top, performance.now()]]; drawTrail(); });
+  pad.addEventListener('pointermove', e => { const t = UI.tm; if (!t || !t.pts || t.done) return; const b = pad.getBoundingClientRect(); t.pts.push([e.clientX - b.left, e.clientY - b.top, performance.now()]); drawTrail(); });
+  const end = () => { const t = UI.tm; if (!t || !t.pts || t.done) return; const pts = t.pts; t.pts = null; finishStroke(pts); };
+  pad.addEventListener('pointerup', end); pad.addEventListener('pointercancel', end);
+}
+function drawTrail(cls) { const tr = document.getElementById('trail'), t = UI.tm; if (!tr || !t) return; if (t.pts) tr.setAttribute('points', t.pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ')); if (cls) tr.setAttribute('class', 'trail ' + cls); }
+function tmPos(info, G, p) {
+  const [u, v] = info._x || (info._x = crossing(info));
+  const arm = info.throws === 'L' ? 1 : -1, br = BREAK[info.code] || [0, 0];
+  const X = uu => G.cx + uu * G.zw / 2, Y = vv => G.cy - vv * G.zh / 2;
+  const r0 = [G.cx + arm * G.W * 0.07, G.H * 0.08], x1 = [X(u), Y(v)];
+  const app = [X(u - arm * br[0]), Y(v - br[1])];          // where it seems to be headed before it breaks
+  const c1 = [r0[0] + (app[0] - r0[0]) * 0.35, r0[1] + (app[1] - r0[1]) * 0.35], c2 = [r0[0] + (app[0] - r0[0]) * 0.78, r0[1] + (app[1] - r0[1]) * 0.78];
+  const t = Math.min(1.15, Math.pow(Math.max(0, p), 1.45)), m = 1 - t;
+  let x = m * m * m * r0[0] + 3 * m * m * t * c1[0] + 3 * m * t * t * c2[0] + t * t * t * x1[0];
+  let y = m * m * m * r0[1] + 3 * m * m * t * c1[1] + 3 * m * t * t * c2[1] + t * t * t * x1[1];
+  if (info.code === 'KN') { x += Math.sin(p * 23) * G.zw * 0.03; y += Math.cos(p * 17) * G.zh * 0.02; }
+  return [x, y];
+}
+function tmFrame() {
+  const tm = UI.tm; if (!tm || tm.phase !== 'live') return;
+  const G = padGeo(); const ball = document.getElementById('pball'), ring = document.getElementById('pring');
+  if (!G || !ball) { TM_RAF = requestAnimationFrame(tmFrame); return; }
+  const now = performance.now(), info = tm.info, p = (now - tm.t0) / info.flight;
+  const [x, y] = tmPos(info, G, p);
+  const rFull = G.zw * 0.085, r = rFull * (0.28 + 0.72 * Math.pow(Math.min(1.1, Math.max(0, p)), 1.8));
+  ball.style.transform = `translate(${(x - r).toFixed(1)}px,${(y - r).toFixed(1)}px)`; ball.style.width = ball.style.height = (2 * r).toFixed(1) + 'px';
+  ball.style.opacity = p > 1.08 ? String(Math.max(0, 1 - (p - 1.08) * 8)) : '1';
+  if (!tm.done) {
+    const rr = r * (1 + 2.6 * Math.max(0, 1 - p));
+    ring.style.transform = `translate(${(x - rr).toFixed(1)}px,${(y - rr).toFixed(1)}px)`; ring.style.width = ring.style.height = (2 * rr).toFixed(1) + 'px';
+    ring.style.opacity = p > 1 ? '0' : String(Math.min(1, p * 3));
+    ring.classList.toggle('hot', Math.abs(now - tm.arr) <= info.bands.good * info.win);
+    // no swing by the end of the late window: he takes it
+    if (!tm.pts && now > tm.arr + info.bands.near * info.win) { resolveTiming({ swing: false }); }
+  }
+  // keep running until the swing or the take is settled, then let the ball finish
+  if (!tm.done || p < 1.25) TM_RAF = requestAnimationFrame(tmFrame);
+}
+function shapeOf(pts) {
+  const a = pts[0], b = pts[pts.length - 1], dx = b[0] - a[0], dy = b[1] - a[1];
+  const ang = Math.atan2(-dy, Math.abs(dx)) * 180 / Math.PI;
+  return ang >= 20 ? 'uppercut' : ang <= -20 ? 'chop' : 'level';
+}
+function finishStroke(pts) {
+  const tm = UI.tm; if (!tm || tm.done) return;
+  let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  if (L < 28) { drawTrail(); const tr = document.getElementById('trail'); if (tr) tr.setAttribute('points', ''); return; }   // a check swing: still alive
+  // the swing's moment is when the stroke is halfway through
+  let acc = 0, tMid = pts[pts.length - 1][2];
+  for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); if (acc + d >= L / 2) { const f = d ? (L / 2 - acc) / d : 0; tMid = pts[i - 1][2] + f * (pts[i][2] - pts[i - 1][2]); break; } acc += d; }
+  swingAt(tMid, shapeOf(pts));
+}
+function swingAt(t, shape) {
+  const tm = UI.tm; if (!tm || tm.done || tm.phase !== 'live') return;
+  const shapeOK = shape === tm.info.shape, err = t - tm.arr;
+  const grade = FC.timingGrade(err, tm.info.win, shapeOK);
+  sfx('whiff');
+  resolveTiming({ swing: true, grade, shapeOK, err: Math.round(err), shape });
+}
+function resolveTiming(res) {
+  const tm = UI.tm; if (!tm || tm.done) return;
+  tm.done = true; tm.res = res;
+  const key = res.swing ? res.grade : 'take';
+  const el = document.getElementById('pgrade');
+  if (el) { el.textContent = GRADE_TXT[key] + (res.swing && !res.shapeOK ? ' · wrong swing' : ''); el.className = 'pgrade on g-' + key; }
+  drawTrail('g-' + key);
+  const ring = document.getElementById('pring'); if (ring) ring.style.opacity = '0';
+  const g = S.game;
+  setTimeout(() => {
+    if (UI.tm !== tm) return;
+    stopTiming();
+    doUserAction(() => FC.userSwingTimed(g, { swing: res.swing, grade: res.grade, shapeOK: res.shapeOK }));
+  }, REDUCED ? 250 : 520);
 }
 const RUN_INFO = { steal2: ['Steal second', 'The runner on first goes. The batter takes.'], steal3: ['Steal third', 'The runner on second goes. Harder than second.'], hitrun: ['Hit-and-run', 'The runner goes and the batter swings to protect him. Fewer double plays, more extra bases.'], bunt: ['Bunt', 'Square around. Usually a sacrifice; a fast runner can beat it out.'], squeeze: ['Squeeze', 'The runner on third breaks for home and the batter bunts. A miss hangs him out.'] };
 function runHTML(g) {
@@ -783,6 +932,7 @@ function benchHTML(g) {
       ${runners.map(r => `<li><div class="bag-item static"><span>Pinch run for ${esc(lastName(r.name))} (${['1st', '2nd', '3rd'][r.i]})</span></div></li>${list('pr', `data-base="${r.i}"`)}`).join('')}
       <li><button class="bag-item" data-a="simRest"><span>${UI.confirmSim ? 'Tap again to sim' : 'Sim to final'}</span><span>▶</span></button><p>Your coaches play out the game.</p></li>
       <li><div class="bag-item static"><span>Text speed</span></div>${pills('speed', [['slow', 'Slow'], ['mid', 'Mid'], ['fast', 'Fast']])}</li>
+      <li><div class="bag-item static"><span>Swing timing</span></div>${pills('timing', [['on', 'Swipe'], ['off', 'Menus only']])}<p>Swipe to swing after you pick a swing. Menus only plays the old way.</p></li>
       <li><div class="bag-item static"><span>Advance text</span></div>${pills('mode', [['auto', 'Auto'], ['tap', 'Tap']])}<p>Tap the text box to move on faster either way.</p></li>
     </ul></div>`;
 }
@@ -1041,7 +1191,7 @@ function edInput(t) {
 }
 
 /* ---------- Commands ---------- */
-function resetGameUI() { UI.V = null; UI.menu = 'cmd'; UI.sel = 0; UI.app = 'normal'; UI.sheet = false; UI.confirmSim = false; UI.coach = null; UI.msg = ''; UI.bpSel = null; }
+function resetGameUI() { stopTiming(); UI.V = null; UI.menu = 'cmd'; UI.sel = 0; UI.app = 'normal'; UI.sheet = false; UI.confirmSim = false; UI.coach = null; UI.msg = ''; UI.bpSel = null; }
 function coachPeek() {
   const g = S && S.game; if (!g || !g.need) return null;
   const r = g.rng; let c = null;
@@ -1119,7 +1269,11 @@ const A = {
   loc(d) { UI.loc = d.v; sfx('blip'); renderPanel(); },
   throw() { const g = S.game; if (PB.active || g.need !== 'pitch') return; sfx('select'); UI.lastPitchPA = g.pa; doUserAction(() => FC.userPitch(g, UI.sel, UI.loc)); },
   asel(d) { if (PB.active) return; if (UI.app === d.v) { A.swing(); return; } UI.app = d.v; sfx('blip'); renderPanel(); },
-  swing() { const g = S.game; if (PB.active || g.need !== 'swing') return; sfx('select'); doUserAction(() => FC.userSwing(g, UI.app)); },
+  swing() {
+    const g = S.game; if (PB.active || g.need !== 'swing') return; sfx('select');
+    if (PREFS.timing === 'on' && UI.app !== 'take') { const info = FC.userSwingPrep(g, UI.app); if (info) { UI.confirmSim = false; UI.menu = 'cmd'; save(); startTiming(info); return; } }
+    doUserAction(() => FC.userSwing(g, UI.app));
+  },
   run(d) { const g = S.game; if (PB.active) return; sfx('select'); doUserAction(() => FC.userRun(g, d.v)); },
   ph(d) { const g = S.game; doUserAction(() => FC.userPinch(g, +d.slot, +d.id)); },
   pr(d) { const g = S.game; doUserAction(() => FC.userPinchRun(g, +d.base, +d.id)); },
@@ -1143,9 +1297,9 @@ const A = {
   },
   auto() { const g = S.game; if (PB.active) return; doUserAction(() => FC.userAuto(g)); },
   simRest() { if (!UI.confirmSim) { UI.confirmSim = true; renderPanel(); return; } const g = S.game; cancelPlayback(); resetGameUI(); FC.simToEnd(g); save(); UI.V = FC.snap(g); render(); },
-  stats() { UI.sheet = true; UI.sheetTab = 'box'; sfx('select'); renderSheet(); },
+  stats() { if (UI.tm && !UI.tm.done) stopTiming(); UI.sheet = true; UI.sheetTab = 'box'; sfx('select'); renderSheet(); },
   stab(d) { UI.sheetTab = d.v; sfx('blip'); renderSheet(); },
-  closeSheet() { UI.sheet = false; renderSheet(); },
+  closeSheet() { UI.sheet = false; renderSheet(); if (S && S.game && S.game.need === 'timing' && !UI.tm) renderPanel(); },
   pref(d) { PREFS[d.k] = d.v; savePrefs(); sfx('blip'); renderPanel(); },
   skip() { if (PB.active) { PB.skip = true; PB.finish = true; pbTap(); } },
   tap() { pbTap(); },
@@ -1237,7 +1391,8 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   const el = e.target;
   if ((e.key === 'Enter' || e.key === ' ') && el && el.getAttribute && el.getAttribute('role') === 'button' && el.dataset.a) { e.preventDefault(); const fn = A[el.dataset.a]; if (fn) fn(el.dataset, el, e); return; }
-  if (e.key === 'Escape') { if (UI.sheet) { UI.sheet = false; renderSheet(); return; } if (S && S.phase === 'game' && !PB.active && UI.menu !== 'cmd') { UI.menu = 'cmd'; renderPanel(); } return; }
+  if (e.key === 'Escape') { if (UI.sheet) { A.closeSheet(); return; } if (S && S.phase === 'game' && !PB.active && UI.menu !== 'cmd') { UI.menu = 'cmd'; renderPanel(); } return; }
+  if (UI.tm && UI.tm.phase === 'live' && !UI.tm.done && (e.key === ' ' || e.key === 'Enter') && !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) { e.preventDefault(); swingAt(performance.now(), UI.tm.info.shape); return; }
   if (PB.active && (e.key === 'Enter' || e.key === ' ' || e.key === 'z' || e.key === 'a') && !/^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) { e.preventDefault(); pbTap(); }
 });
 document.addEventListener('input', e => {

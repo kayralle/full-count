@@ -520,3 +520,17 @@ A Pokémon-style journey through the league. Exhibition and Season stay as they 
 - One TYPES object in engine.js holds the 18 names, colors, the chart, the pitch → type map, the type rules, the constants above and a test hook. One LEVELS object holds the curve, XP units, EV rules and stage table.
 - Centering tables rebuild after any edit. Cache them in memory, not in saves.
 - Type and level randomness: none. The same seed gives the same game with or without the UI.
+
+---
+
+## 12. Timed swings (added after the first build)
+
+After you pick a swing in the menu, the pitch comes in on a catcher's-eye plate view and you swipe to swing. A setting in the Bench menu ("Swing timing: Swipe / Menus only") turns it off. AI batters and the headless sims never use it.
+
+- **Shape:** a level swipe for Swing and the three Sit choices, up and across for Swing big, short and down for Protect. The wrong shape costs one grade. Take skips the pad.
+- **Timing:** the swing's moment is the halfway point of the stroke. Against the ball reaching the plate: within 45 ms Perfect, 100 Good, 165 OK, 260 Early or Late, beyond that a Miss. Rookie widens the bands ×1.4 and All-Star narrows them ×0.75. A right Sit guess widens them ×1.35, a wrong one narrows them ×0.75; Protect ×1.25, Swing big ×0.85.
+- **Flight:** the pitch's real time to the plate (60.5 ft at its speed, after fatigue), slowed ×2.5 / 2.15 / 1.85 by difficulty so it can be played. A ring around the ball closes as it arrives.
+- **Holding off:** no swipe by the end of the late window is a take. Edge pitches cross near the border on both sides of it, and chase pitches follow their real break so they look like strikes until late.
+- **Effect:** each grade shifts contact, foul, hit quality and HR quality in log-odds, like a type edge. OK is neutral. Perfect +0.70 / −0.30 / +0.35 / +0.40; Good +0.35 / −0.10 / +0.15 / +0.15; Early and Late −0.55 / +0.55 / −0.30 / −0.30 to −0.40; Miss is a whiff.
+- **Saves:** the engine picks the pitch and rolls where it crosses before the swipe, and saves it, so a reload shows the same pitch.
+- **Passive hitters:** a user batter who swings at under 42% of his last 12 pitches gets pounded in the zone, up to +1.8 log-odds on the zone rate for someone who never swings. This applies with or without swiping.
