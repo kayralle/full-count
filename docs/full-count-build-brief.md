@@ -377,14 +377,14 @@ The chart is the Pokémon Gen 6+ chart, cell for cell. Only the names change.
 | Poison | **Junkballer** | Pitchers: fastest pitch averages under 91 mph, or slurve, screwball or eephus usage 15%+ |
 | Ground | **Gold Glove** | Hitters: OAA +8 or better |
 | Flying | **Launcher** | Hitters: barrel rate 12%+, or fly-ball rate 45%+ with 20+ HR per 600 PA |
-| Psychic | **Crafty** | Pitchers: changeup usage 20%+, or fastest pitch under 92.5 mph with xwOBA allowed under league |
+| Psychic | **Crafty** | Pitchers: changeup usage 25%+, or fastest pitch under 92.5 mph with xwOBA allowed .010+ under league |
 | Bug | **Pest** | Hitters: K% under 14 and Power under 50 |
 | Rock | **Curveballer** | Pitchers: curve or knuckle-curve usage 25%+ |
 | Ghost | **Knuckleballer** | Pitchers: throws a knuckleball, or splitter/forkball usage 25%+ (they die like a knuckler) |
 | Dragon | **Franchise** | Top 6% of hitters by wOBA (400+ PA) and top 6% of pitchers by K−BB% (60+ IP or 40+ relief games) |
 | Dark | **Intimidator** | Hitters: 6+ intentional walks. Pitchers: HBP rate in the top 10% with K% 25+ |
 | Steel | **Workhorse** | Hitters: 155+ games. Pitchers: top 15% in pitches per start, or GB% 52+ |
-| Fairy | **Lucky Charm** | Hitters: wOBA beat xwOBA by .025+. Pitchers: xwOBA beat wOBA by .025+ |
+| Fairy | **Lucky Charm** | Hitters (300+ PA): wOBA beat xwOBA by .030+. Pitchers (300+ BF): xwOBA beat wOBA by .030+ |
 
 - A player has 1 or 2 types. Rank the rules he passes by how far past the line he is and keep the top 2. Nobody passes: Grinder.
 - Store types in `src/data.js` with the reason ("Fireballer · 98.1 mph 4-seam"), so the editor can show it.
