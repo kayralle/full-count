@@ -100,7 +100,7 @@ function winRate(bot, n, opts) {
 
 /* ---------------------------------------------------------------- checks */
 const CHECKS = {
-  power(n = 150) {
+  power(n = 600) {   // about 1,800 PA each way; 150 games is too noisy for a 1.6x test
     // A mid-power everyday hitter, real vs Power 99.
     const hs = FC.DATA.players.filter(p => p.kind === 'H' && p.line.pa >= 450 && p.r.power > 40 && p.r.power < 60);
     const h = hs[0];
@@ -108,7 +108,7 @@ const CHECKS = {
       let hr = 0, pa = 0;
       for (let i = 0; i < n; i++) {
         const opp = teams()[i % 30] === h.team ? teams()[(i + 1) % 30] : teams()[i % 30];
-        const g = FC.newGame({ away: opp, home: h.team, user: null, seed: 5000 + i, safetyCap: 25 });
+        const g = FC.newGame(i % 2 ? { away: opp, home: h.team, user: null, seed: 5000 + i, safetyCap: 25 } : { away: h.team, home: opp, user: null, seed: 5000 + i, safetyCap: 25 });
         FC.runUntilUser(g);
         const gp = g.P[h.id]; if (gp) { hr += gp.b.hr; pa += gp.b.pa; }
       }
@@ -150,7 +150,7 @@ const CHECKS = {
     log(`  coach (AI policy) ${pct(c.pct)}, random menu choices ${pct(rnd.pct)}`);
     return r.pct >= 0.6 && r.pct <= 0.65;
   },
-  bots(n = 300) {
+  bots(n = 900) {   // the ±2-point band needs ~900 games per bot to resolve
     const std = winRate('sharp', n, { pen: 'coach' });
     const never = winRate('sharp', n, { pen: 'never' });
     const early = winRate('sharp', n, { pen: 'early' });
@@ -222,7 +222,7 @@ const CHECKS = {
     log(`Player lines, types on vs off vs the league: largest wOBA-like change ${worst.toFixed(4)} (${who}) (target ≤ .006)`);
     return worst <= 0.006;
   },
-  levels(n = 400) {
+  levels(n = 1500) {   // a win rate on 400 games has an SE of 2.5 points, about the width of the +5 band
     const team = medianTeam();
     const out = [];
     for (const gap of [0, 5, 10, 20]) {
